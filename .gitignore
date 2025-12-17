@@ -1,3 +1,15 @@
+# Données lourdes (LJSpeech)
+data/
+downloads/
+
+# Fichiers de sauvegarde PyTorch (modèles et stats)
+*.pt
+*.pth
+
+# Dossiers temporaires Windows
+tmp*
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
