@@ -1,0 +1,1 @@
+Pour télécharger le dossier BDD, lancer le fichier ljspeech.py.
