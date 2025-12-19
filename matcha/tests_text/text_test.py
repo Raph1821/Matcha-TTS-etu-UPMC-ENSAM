@@ -1,3 +1,6 @@
+#commande pour tester 
+#pytest tests_text/text_test.py -v
+
 from matcha.text_to_ID import cleaners, symbols, text_to_sequence, sequence_to_text
 from unidecode import unidecode
 
@@ -57,3 +60,4 @@ def test_cleaner_pipelines():
   assert cleaners.english_cleaners(text) == 'mister muller ate two apples'
   assert cleaners.transliteration_cleaners(text) == 'mr. muller ate 2 apples'
   assert cleaners.basic_cleaners(text) == 'mr. müller ate 2 apples'
+

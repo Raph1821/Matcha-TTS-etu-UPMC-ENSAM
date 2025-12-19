@@ -12,7 +12,7 @@ hyperparameter. Some cleaners are English-specific. You'll typically want to use
 
 
 from unidecode import unidecode
-from .numbers import normalize_numbers
+from matcha.text_to_ID.numbers import normalize_numbers
 import re
 
 # Regular expression matching whitespace:

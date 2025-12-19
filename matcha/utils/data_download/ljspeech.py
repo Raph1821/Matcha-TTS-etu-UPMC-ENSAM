@@ -6,7 +6,13 @@ from pathlib import Path
 
 from torch.hub import download_url_to_file
 
-from matcha.utils.data.utils import _extract_tar
+from matcha.utils.data_download.utils import _extract_tar
+
+#- Téléchargent les données depuis une URL au format tar ou zip 
+#- Extraient les archives dans un répertoire de sortie val ou train 
+#- Génèrent des fichiers .txt au format <chemin_wav>|<transcription>.
+#- Utilisent argparse pour organiser les répertoires de sortie 
+
 
 URL = "https://data.keithito.com/data/speech/LJSpeech-1.1.tar.bz2"
 
