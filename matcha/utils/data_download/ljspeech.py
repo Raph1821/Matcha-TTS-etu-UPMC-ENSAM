@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(r'C:\Users\mathi\OneDrive\Documents\1. COURS SORBONNE\Machine Learning\Matcha TTS\Nouveau Matcha-TTS\Matcha-TTS-etu-UPMC-ENSAM')))
 import argparse
 import random
 import tempfile
