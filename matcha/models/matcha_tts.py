@@ -1,7 +1,7 @@
 import torch
 from pytorch_lightning import LightningModule
 from matcha.models.components.text_encoder import TextEncoder
-# Importez ici vos autres futurs composants (FlowMatching, Decoder)
+from matcha.models.components.decoder import Decoder
 
 class MatchaTTS(LightningModule):
     def __init__(self, n_vocab, out_channels, hidden_channels):
@@ -21,8 +21,12 @@ class MatchaTTS(LightningModule):
             kernel_size=3,
             p_dropout=0.1
         )
-        # self.decoder = Decoder(**decoder_params)
-        # self.flow_matching = FlowMatching(**flow_params)
+        
+        self.decoder = Decoder(
+            in_channels=out_channels,      # 80
+            hidden_channels=hidden_channels, # 192
+            out_channels=out_channels      # 80
+        )
 
     def forward(self, x, x_lengths, y=None, y_lengths=None):
         # 1. Encodage du texte -> h
@@ -31,18 +35,37 @@ class MatchaTTS(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        x, x_lengths, y, y_lengths = batch["x"], batch["x_lengths"], batch["y"], batch["y_lengths"]
+        x, x_lengths = batch["x"], batch["x_lengths"]
+        y, y_lengths = batch["y"], batch["y_lengths"]
+
+        # 1. Encodeur
+        mu, x_mask = self.encoder(x, x_lengths)
+
+        # 2. Flow Matching : Temps t aléatoire
+        t = torch.rand(y.shape[0], device=y.device)
         
-        # 1. Passer le texte dans l'encodeur pour obtenir mu (étape 7 du protocole)
-        mu = self.encoder(x, x_lengths)
+        # 2.5 [CORRECTION CRITIQUE] Alignement Naïf (Upsampling)
+        # On étire mu pour qu'il fasse la même taille que y (l'audio)
+        # mu: [Batch, 80, Text_Len] -> [Batch, 80, Audio_Len]
+        mu = torch.nn.functional.interpolate(mu, size=y.shape[-1], mode='nearest')
         
-        # 2. Calculer la perte via le Flow Matching (à implémenter)
-        # loss = self.flow_matching.compute_loss(y, mu, y_lengths)
+        # On doit aussi créer un masque pour l'audio (pour ignorer le padding audio)
+        # On recrée un masque basé sur y_lengths au lieu d'utiliser x_mask (qui est pour le texte)
+        y_mask = torch.arange(y.size(2), device=y.device)[None, :] < y_lengths[:, None]
         
-        # Pour l'instant, on simule une perte pour tester la boucle
-        loss = torch.nn.functional.mse_loss(mu, mu) 
-        
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        # 3. On crée le chemin (z0 -> y)
+        z0 = torch.randn_like(y)
+        zt = (1 - t.view(-1, 1, 1)) * z0 + t.view(-1, 1, 1) * y
+        target = y - z0
+
+        # 4. Le Décodeur
+        # ATTENTION : on passe y_mask maintenant, car on travaille sur la dimension audio
+        v_pred = self.decoder(zt, t, mu, y_mask)
+
+        # 5. Loss
+        loss = torch.mean((v_pred - target)**2)
+
+        self.log("train_loss", loss, prog_bar=True, on_step=True)
         return loss
 
     def configure_optimizers(self):

@@ -70,4 +70,4 @@ class TextEncoder(nn.Module):
         # mu: [batch, out_channels, len]
         mu = self.proj(x)
         
-        return mu
+        return mu, mask
