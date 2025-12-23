@@ -1,7 +1,11 @@
 import torch
 from pytorch_lightning import LightningModule
 from matcha.models.components.text_encoder import TextEncoder
+<<<<<<< Updated upstream
 from matcha.models.components.decoder import Decoder
+=======
+# Importez ici vos autres futurs composants (FlowMatching, Decoder)
+>>>>>>> Stashed changes
 
 class MatchaTTS(LightningModule):
     def __init__(self, n_vocab, out_channels, hidden_channels):
@@ -21,12 +25,17 @@ class MatchaTTS(LightningModule):
             kernel_size=3,
             p_dropout=0.1
         )
+<<<<<<< Updated upstream
         
         self.decoder = Decoder(
             in_channels=out_channels,      # 80
             hidden_channels=hidden_channels, # 192
             out_channels=out_channels      # 80
         )
+=======
+        # self.decoder = Decoder(**decoder_params)
+        # self.flow_matching = FlowMatching(**flow_params)
+>>>>>>> Stashed changes
 
     def forward(self, x, x_lengths, y=None, y_lengths=None):
         # 1. Encodage du texte -> h
@@ -35,6 +44,7 @@ class MatchaTTS(LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
+<<<<<<< Updated upstream
         x, x_lengths = batch["x"], batch["x_lengths"]
         y, y_lengths = batch["y"], batch["y_lengths"]
 
@@ -66,6 +76,20 @@ class MatchaTTS(LightningModule):
         loss = torch.mean((v_pred - target)**2)
 
         self.log("train_loss", loss, prog_bar=True, on_step=True)
+=======
+        x, x_lengths, y, y_lengths = batch["x"], batch["x_lengths"], batch["y"], batch["y_lengths"]
+        
+        # 1. Passer le texte dans l'encodeur pour obtenir mu (étape 7 du protocole)
+        mu = self.encoder(x, x_lengths)
+        
+        # 2. Calculer la perte via le Flow Matching (à implémenter)
+        # loss = self.flow_matching.compute_loss(y, mu, y_lengths)
+        
+        # Pour l'instant, on simule une perte pour tester la boucle
+        loss = torch.nn.functional.mse_loss(mu, mu) 
+        
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+>>>>>>> Stashed changes
         return loss
 
     def configure_optimizers(self):

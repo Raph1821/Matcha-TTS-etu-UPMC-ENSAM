@@ -1,8 +1,14 @@
+<<<<<<< Updated upstream
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+=======
+import torch
+from torch import nn
+import math
+>>>>>>> Stashed changes
 
 class EncoderBlock(nn.Module):
     def __init__(self, hidden_channels, filter_channels, n_heads, kernel_size, p_dropout):
@@ -38,6 +44,7 @@ class EncoderBlock(nn.Module):
         return x
 
 class TextEncoder(nn.Module):
+<<<<<<< Updated upstream
     def __init__(self, n_vocab, out_channels, hidden_channels, filter_channels, 
                  n_heads, n_layers, kernel_size, p_dropout):
         super().__init__()
@@ -51,6 +58,32 @@ class TextEncoder(nn.Module):
             for _ in range(n_layers)
         ])
 
+=======
+    def __init__(self, 
+                 n_vocab,          # Taille de l'alphabet (len(symbols))
+                 out_channels,     # Dimension de sortie (acoustique)
+                 hidden_channels,  # Dimension interne de l'encodeur
+                 filter_channels,  # Pour les couches cachées du Transformer
+                 n_heads,          # Nombre de têtes d'attention
+                 n_layers,         # Nombre de blocs Transformer
+                 kernel_size,      # Taille de noyau pour les convolutions
+                 p_dropout):       # Taux de dropout
+        super().__init__()
+        
+        self.n_vocab = n_vocab
+        self.out_channels = out_channels
+
+        # 1. Couche d'Embedding : transforme l'ID en vecteur continu
+        self.emb = nn.Embedding(n_vocab, hidden_channels)
+        nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
+
+        # 2. Création de la pile de blocs
+        self.encoder_stack = nn.ModuleList([
+            EncoderBlock(hidden_channels, filter_channels, n_heads, kernel_size, p_dropout)
+            for _ in range(n_layers)])
+
+        # 3. Projection finale vers la moyenne (mu)
+>>>>>>> Stashed changes
         self.proj = nn.Conv1d(hidden_channels, out_channels, 1)
 
     def forward(self, x, x_lengths):
@@ -70,4 +103,8 @@ class TextEncoder(nn.Module):
         # mu: [batch, out_channels, len]
         mu = self.proj(x)
         
+<<<<<<< Updated upstream
         return mu, mask
+=======
+        return mu
+>>>>>>> Stashed changes
