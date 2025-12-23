@@ -13,7 +13,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TEXTE_A_DIRE = "Hello, this is a test of the Matcha TTS model."
 
 def get_latest_checkpoint(logs_dir="lightning_logs"):
-    """Trouve automatiquement le dernier fichier .ckpt"""
+    """Trouve automatiquement le dernier fichier .ckpt pour avoir les derniers poids."""
     import glob
     # Cherche récursivement tous les .ckpt
     files = glob.glob(f"{logs_dir}/**/*.ckpt", recursive=True)
