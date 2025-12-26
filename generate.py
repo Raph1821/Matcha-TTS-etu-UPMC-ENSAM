@@ -69,8 +69,8 @@ def main():
     x_lengths = torch.tensor([len(sequence)], dtype=torch.long, device=DEVICE)
 
     with torch.no_grad():
-        # 3. 使用模型的 synthesise 方法进行完整的推理流程
-        # 这会自动处理编码、对齐和生成
+        # 3. Utilisation de la méthode synthesise du modèle pour le processus d'inférence complet
+        # Cela gère automatiquement l'encodage, l'alignement et la génération
         output = model.synthesise(
             x=x,
             x_lengths=x_lengths,
@@ -80,8 +80,8 @@ def main():
             length_scale=1.0
         )
         
-        # 获取生成的 mel spectrogram
-        spectrogram = output["decoder_outputs"]  # 这是去归一化后的 mel
+        # Récupération du mel spectrogramme généré
+        spectrogram = output["decoder_outputs"]  # C'est le mel déjà dénormalisé
 
     # 5. Conversion Spectrogramme -> Audio (Griffin-Lim)
     # C'est une méthode mathématique pour reconstruire le son sans Vocoder entraîné
@@ -110,15 +110,15 @@ def main():
     ).to(DEVICE)
     
     # C. Exécution du Pipeline
-    # 1. Le modèle sort déjà des mels (synthesise 返回的 mel 已经去归一化)
-    # 使用 output["mel"] 如果可用，否则使用 decoder_outputs
+    # 1. Le modèle sort déjà des mels (synthesise retourne le mel déjà dénormalisé)
+    # Utiliser output["mel"] si disponible, sinon utiliser decoder_outputs
     if "mel" in output:
-        mel_spectrogram = output["mel"]  # 已经去归一化
+        mel_spectrogram = output["mel"]  # Déjà dénormalisé
     else:
-        # 如果只有 decoder_outputs，可能需要去归一化
+        # Si on a seulement decoder_outputs, il faudra peut-être dénormaliser
         mel_spectrogram = spectrogram
     
-    # 确保 mel_spectrogram 是正数（如果是 log-mel，需要 exp）
+    # S'assurer que mel_spectrogram est positif (si c'est un log-mel, il faut exp)
     if mel_spectrogram.min() < 0:
         mel_spectrogram = torch.exp(mel_spectrogram)
     
