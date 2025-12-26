@@ -426,14 +426,14 @@ class Decoder(nn.Module):
             mask_down = rearrange(mask_down, "b t -> b 1 t")
             hiddens.append(x)  # Save hidden states for skip connections
             x = downsample(x * mask_down)
-            # 更新 mask：下采样后的尺寸
+            # Mettre à jour le mask : taille après sous-échantillonnage
             if isinstance(downsample, Downsample1D):
-                # Conv1d stride=2 下采样，尺寸减半
+                # Conv1d stride=2 sous-échantillonnage, taille divisée par 2
                 new_mask_size = (mask_down.shape[-1] + 1) // 2
             else:
-                # 最后一个 block 不进行下采样，尺寸不变
+                # Le dernier block ne fait pas de sous-échantillonnage, taille inchangée
                 new_mask_size = mask_down.shape[-1]
-            # 创建新的 mask，保持与下采样后的尺寸一致
+            # Créer un nouveau mask, maintenir la cohérence avec la taille après sous-échantillonnage
             new_mask = mask_down[:, :, :new_mask_size]
             masks.append(new_mask)
 
@@ -457,12 +457,12 @@ class Decoder(nn.Module):
             mask_up = masks.pop()
             hidden = hiddens.pop()
             
-            # 确保 skip connection 的尺寸匹配
+            # S'assurer que les dimensions de la connexion skip correspondent
             if x.shape[-1] != hidden.shape[-1]:
-                # 如果尺寸不匹配，使用插值调整
+                # Si les dimensions ne correspondent pas, utiliser l'interpolation pour ajuster
                 x = F.interpolate(x, size=hidden.shape[-1], mode='nearest', align_corners=None)
             
-            # 连接 skip connection
+            # Connecter la connexion skip
             x_skip = pack([x, hidden], "b * t")[0]
             x = resnet(x_skip, mask_up, t)
             x = rearrange(x, "b c t -> b t c")
@@ -477,16 +477,16 @@ class Decoder(nn.Module):
             mask_up = rearrange(mask_up, "b t -> b 1 t")
             x = upsample(x * mask_up)
             
-            # 更新 mask：上采样后的尺寸
+            # Mettre à jour le mask : taille après sur-échantillonnage
             if isinstance(upsample, Upsample1D) and upsample.use_conv_transpose:
-                # ConvTranspose1d stride=2 上采样，尺寸翻倍
+                # ConvTranspose1d stride=2 sur-échantillonnage, taille doublée
                 new_mask_size = mask_up.shape[-1] * 2
             else:
-                # 最后一个 block 或使用插值，尺寸可能不同
+                # Le dernier block ou utilisation d'interpolation, taille peut être différente
                 new_mask_size = x.shape[-1]
-            # 创建新的 mask，保持与上采样后的尺寸一致
+            # Créer un nouveau mask, maintenir la cohérence avec la taille après sur-échantillonnage
             if new_mask_size > mask_up.shape[-1]:
-                # 扩展 mask
+                # Étendre le mask
                 mask_up = F.interpolate(mask_up, size=new_mask_size, mode='nearest', align_corners=None)
             else:
                 mask_up = mask_up[:, :, :new_mask_size]
