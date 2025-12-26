@@ -28,7 +28,7 @@ class BaseLightningClass(LightningModule, ABC):
         self.register_buffer("mel_std", torch.tensor(data_statistics["mel_std"]))
 
     def configure_optimizers(self) -> Any:
-        # 检查是否有配置的优化器（原版方式）
+        # Vérifier s'il y a un optimiseur configuré (méthode originale)
         if hasattr(self.hparams, 'optimizer') and self.hparams.optimizer is not None:
             optimizer = self.hparams.optimizer(params=self.parameters())
             if self.hparams.scheduler not in (None, {}):
@@ -55,7 +55,7 @@ class BaseLightningClass(LightningModule, ABC):
 
             return {"optimizer": optimizer}
         else:
-            # 简化方式：使用默认优化器配置
+            # Méthode simplifiée : utiliser la configuration d'optimiseur par défaut
             import torch.optim as optim
             optimizer = optim.AdamW(
                 self.parameters(),
@@ -64,7 +64,7 @@ class BaseLightningClass(LightningModule, ABC):
                 weight_decay=1e-6
             )
             
-            # 检查是否有自定义的学习率调度器配置
+            # Vérifier s'il y a une configuration de planificateur de taux d'apprentissage personnalisée
             if hasattr(self, 'scheduler_config') and self.scheduler_config is not None:
                 scheduler = self.scheduler_config['scheduler'](optimizer)
                 return {
@@ -76,7 +76,7 @@ class BaseLightningClass(LightningModule, ABC):
                     },
                 }
             else:
-                # 默认使用余弦退火调度器
+                # Utiliser par défaut le planificateur de recuit cosinus
                 scheduler = optim.lr_scheduler.CosineAnnealingLR(
                     optimizer,
                     T_max=1000,
