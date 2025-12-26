@@ -10,7 +10,7 @@ from matcha.text_to_ID.text_to_sequence import text_to_sequence
 CHECKPOINT_PATH = None  # Laissera le script trouver le dernier automatiquement
 OUTPUT_FOLDER = "generated_audio"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-TEXTE_A_DIRE = "Hello, this is a test of the Matcha TTS model."
+TEXTE_A_DIRE = "Hello, I am your Matcha Text to Speech model, what can I do for you."
 
 def get_latest_checkpoint(logs_dir="lightning_logs"):
     """Trouve automatiquement le dernier fichier .ckpt pour avoir les derniers poids."""
@@ -69,18 +69,19 @@ def main():
     x_lengths = torch.tensor([len(sequence)], dtype=torch.long, device=DEVICE)
 
     with torch.no_grad():
-        # 3. Encodage (Texte -> Mu)
-        mu, _ = model.encoder(x, x_lengths)
+        # 3. 使用模型的 synthesise 方法进行完整的推理流程
+        # 这会自动处理编码、对齐和生成
+        output = model.synthesise(
+            x=x,
+            x_lengths=x_lengths,
+            n_timesteps=50,
+            temperature=1.0,
+            spks=None,
+            length_scale=1.0
+        )
         
-        # --- ALIGNEMENT MANUEL (IMPORTANT) ---
-        # Comme on a utilisé l'interpolation à l'entraînement, on doit le refaire ici.
-        # On décide arbitrairement qu'un caractère dure X temps.
-        # Facteur 5 = chaque lettre dure un peu de temps. Ajuste si ça parle trop vite/lentement.
-        duree_audio_cible = mu.shape[-1] * 5 
-        mu = torch.nn.functional.interpolate(mu, size=duree_audio_cible, mode='nearest')
-        
-        # 4. Flow Matching (Génération du Spectrogramme)
-        spectrogram = simple_euler_ode_solver(model, mu, n_steps=50)
+        # 获取生成的 mel spectrogram
+        spectrogram = output["decoder_outputs"]  # 这是去归一化后的 mel
 
     # 5. Conversion Spectrogramme -> Audio (Griffin-Lim)
     # C'est une méthode mathématique pour reconstruire le son sans Vocoder entraîné
@@ -109,8 +110,17 @@ def main():
     ).to(DEVICE)
     
     # C. Exécution du Pipeline
-    # 1. Le modèle sort des log-mels, on repasse en échelle normale avec exp()
-    mel_spectrogram = torch.exp(spectrogram)
+    # 1. Le modèle sort déjà des mels (synthesise 返回的 mel 已经去归一化)
+    # 使用 output["mel"] 如果可用，否则使用 decoder_outputs
+    if "mel" in output:
+        mel_spectrogram = output["mel"]  # 已经去归一化
+    else:
+        # 如果只有 decoder_outputs，可能需要去归一化
+        mel_spectrogram = spectrogram
+    
+    # 确保 mel_spectrogram 是正数（如果是 log-mel，需要 exp）
+    if mel_spectrogram.min() < 0:
+        mel_spectrogram = torch.exp(mel_spectrogram)
     
     # 2. On "décompresse" : Mel (80) -> Linéaire (513)
     linear_spectrogram = inv_mel_scale(mel_spectrogram)
@@ -125,11 +135,21 @@ def main():
 
     # (Optionnel) Afficher le spectrogramme
     plt.figure(figsize=(10, 4))
-    plt.imshow(spectrogram.squeeze().cpu().numpy(), origin='lower', aspect='auto')
+    # 使用 mel_spectrogram 而不是 spectrogram
+    plot_data = mel_spectrogram.squeeze().cpu().numpy()
+    plt.imshow(plot_data, origin='lower', aspect='auto')
     plt.title("Spectrogramme Généré")
     plt.colorbar()
     plt.savefig(os.path.join(OUTPUT_FOLDER, "spectrogram.png"))
     print("📊 Spectrogramme sauvegardé.")
+    
+    # 也保存 mel spectrogram
+    plt.figure(figsize=(10, 4))
+    plt.imshow(plot_data, origin='lower', aspect='auto', cmap='viridis')
+    plt.title("Mel Spectrogramme Généré")
+    plt.colorbar()
+    plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"))
+    print("📊 Mel Spectrogramme sauvegardé.")
 
 if __name__ == "__main__":
     main()
