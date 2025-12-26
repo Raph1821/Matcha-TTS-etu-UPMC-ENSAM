@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+lightning_logs/
+generated_audio/
+*.ckpt
+events.out.tfevents.*
