@@ -80,31 +80,43 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 
 ---
 
-### 3. `matcha/utils/model.py`
-**功能**：与模型相关的工具函数集合
+### 3. `matcha/utils/model.py` (重构版本)
 
-**包含的函数**：
-- `sequence_mask()`：创建序列掩码
-- `generate_path()`：基于时长生成对齐路径
-- `duration_loss()`：计算时长损失
-- `normalize()` / `denormalize()`：数据归一化和反归一化
-- `fix_len_compatibility()`：修复长度兼容性（用于 U-Net 下采样）
+#### 重构改进
+- ✅ 重构所有函数实现，改进变量命名和代码结构
+- ✅ 添加法语文档注释
+- ✅ 保持向后兼容（通过函数别名）
+- ✅ 改进代码可读性和维护性
 
-**实现方式**：从原始版本复现，保持逻辑一致性
+**主要函数（新名称）**：
+- `create_sequence_mask()`：创建序列掩码
+- `build_alignment_path()`：基于时长生成对齐路径
+- `compute_duration_loss()`：计算时长损失
+- `apply_normalization()` / `apply_denormalization()`：数据归一化和反归一化
+- `adjust_length_for_downsampling()`：调整长度以兼容下采样
+
+**向后兼容**：
+- 保留旧函数名作为别名（`sequence_mask`, `generate_path`, `duration_loss`, `normalize`, `denormalize`, `fix_len_compatibility`）
+- 现有代码无需修改即可使用
 
 ---
 
-### 3. `matcha/utils/model.py`
-**Fonction** : Collection de fonctions utilitaires liées au modèle
+#### Améliorations de refactorisation
+- ✅ Refactorise toutes les implémentations de fonctions, améliore les noms de variables et la structure du code
+- ✅ Ajoute la documentation en français
+- ✅ Maintient la compatibilité ascendante (via des alias de fonctions)
+- ✅ Améliore la lisibilité et la maintenabilité du code
 
-**Fonctions incluses** :
-- `sequence_mask()` : Crée un masque de séquence
-- `generate_path()` : Génère un chemin d'alignement basé sur la durée
-- `duration_loss()` : Calcule la perte de durée
-- `normalize()` / `denormalize()` : Normalisation et dénormalisation des données
-- `fix_len_compatibility()` : Corrige la compatibilité de longueur (pour le sous-échantillonnage U-Net)
+**Fonctions principales (nouveaux noms)** :
+- `create_sequence_mask()` : Crée un masque de séquence
+- `build_alignment_path()` : Génère un chemin d'alignement basé sur la durée
+- `compute_duration_loss()` : Calcule la perte de durée
+- `apply_normalization()` / `apply_denormalization()` : Normalisation et dénormalisation des données
+- `adjust_length_for_downsampling()` : Ajuste la longueur pour la compatibilité avec le sous-échantillonnage
 
-**Méthode d'implémentation** : Reproduit depuis la version originale, en conservant la logique cohérente
+**Compatibilité ascendante** :
+- Conserve les anciens noms de fonctions comme alias (`sequence_mask`, `generate_path`, `duration_loss`, `normalize`, `denormalize`, `fix_len_compatibility`)
+- Le code existant peut être utilisé sans modification
 
 ---
 
