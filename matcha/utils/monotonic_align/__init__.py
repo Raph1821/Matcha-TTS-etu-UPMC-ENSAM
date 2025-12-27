@@ -2,9 +2,9 @@ import numpy as np
 import torch
 
 try:
-    from matcha.utils.monotonic_align.core import maximum_path_c
+    from matcha.utils.monotonic_align.core import compute_batch_alignments
+    maximum_path_c = compute_batch_alignments
 except ImportError:
-    # Fallback to pure Python implementation if Cython extension is not available
     def maximum_path_c(paths, values, t_xs, t_ys, max_neg_val=-1e9):
         """Pure Python fallback implementation"""
         b = values.shape[0]

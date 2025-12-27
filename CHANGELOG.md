@@ -128,6 +128,14 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 - 包含当 pytorch_lightning 不可用时的回退
 - 使用 `rank_zero_only` 装饰器避免日志重复
 
+#### 最新重构改进
+- ✅ **代码结构优化**：将装饰器应用逻辑拆分为独立函数
+  - `_create_noop_decorator()`：创建 no-op 装饰器（当 rank_zero_only 不可用时）
+  - `_apply_rank_zero_filter()`：应用 rank-zero 过滤器到所有日志方法
+- ✅ **导入方式改进**：支持 `pytorch_lightning` 和 `lightning` 两种导入路径（嵌套 try-except）
+- ✅ **变量命名改进**：`name` → `logger_name`，`logger` → `logger_instance`，提高代码可读性
+- ✅ **维护性提升**：代码结构更清晰，更容易理解和维护
+
 ---
 
 ### 4. `matcha/utils/pylogger.py`
@@ -137,6 +145,14 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 - Support de la journalisation pour l'entraînement multi-GPU
 - Contient un repli lorsque pytorch_lightning n'est pas disponible
 - Utilise le décorateur `rank_zero_only` pour éviter la duplication des logs
+
+#### Améliorations de refactorisation récentes
+- ✅ **Optimisation de la structure du code** : Divise la logique d'application du décorateur en fonctions indépendantes
+  - `_create_noop_decorator()` : Crée un décorateur no-op (lorsque rank_zero_only n'est pas disponible)
+  - `_apply_rank_zero_filter()` : Applique le filtre rank-zero à toutes les méthodes de journalisation
+- ✅ **Amélioration de la méthode d'import** : Supporte deux chemins d'import (`pytorch_lightning` et `lightning`) avec try-except imbriqués
+- ✅ **Amélioration des noms de variables** : `name` → `logger_name`, `logger` → `logger_instance`, améliore la lisibilité du code
+- ✅ **Amélioration de la maintenabilité** : Structure du code plus claire, plus facile à comprendre et à maintenir
 
 ---
 
@@ -344,14 +360,29 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 #### 复现版本的改进
 - ✅ 实现完整的 `BASECFM` 基类
 - ✅ 实现 `CFM` 类（完整的 Flow Matching）
-- ✅ 添加 `solve_euler()` 方法（用于推理）
+- ✅ 添加 `_solve_ode_euler()` 方法（用于推理，私有方法）
 - ✅ 添加 `compute_loss()` 方法（完整的损失计算）
 - ✅ 将 Decoder 集成为估计器
+- ✅ **向后兼容性**：`compute_loss()` 支持新旧两种 API（`x1/mask/mu` 和 `target_sample/target_mask/encoder_output`）
+- ✅ **代码结构优化**：将逻辑拆分为辅助方法（`_initialize_noise`, `_create_time_steps`, `_sample_random_time`, `_build_conditional_path`, `_compute_velocity_target`）
+
+#### 最新修复（向后兼容性增强）
+- ✅ **修复训练时 TypeError**：解决 `compute_loss()` 收到意外关键字参数 `x1` 的问题
+- ✅ **双 API 支持**：`compute_loss()` 方法现在同时接受旧参数名（`x1`, `mask`, `mu`, `spks`, `cond`）和新参数名（`target_sample`, `target_mask`, `encoder_output`, `speaker_emb`, `condition`）
+- ✅ **自动参数映射**：如果新参数为 `None`，自动从旧参数获取值，确保现有代码无需修改即可工作
+- ✅ **错误处理改进**：如果两种 API 都未提供必要参数，抛出清晰的错误信息
 
 **关键方法**：
 - `forward()`：前向扩散（用于推理）
-- `solve_euler()`：Euler 求解器（ODE 求解）
-- `compute_loss()`：计算 Flow Matching 损失
+- `_solve_ode_euler()`：Euler 求解器（ODE 求解，私有方法）
+- `compute_loss()`：计算 Flow Matching 损失（支持新旧 API）
+
+**辅助方法**：
+- `_initialize_noise()`：初始化随机噪声
+- `_create_time_steps()`：创建时间步序列
+- `_sample_random_time()`：采样随机时间
+- `_build_conditional_path()`：构建条件路径
+- `_compute_velocity_target()`：计算速度场目标
 
 ---
 
@@ -363,14 +394,29 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 #### Améliorations de la version de reproduction
 - ✅ Implémente la classe de base `BASECFM` complète
 - ✅ Implémente la classe `CFM` (Flow Matching complet)
-- ✅ Ajoute la méthode `solve_euler()` (utilisée pour l'inférence)
+- ✅ Ajoute la méthode `_solve_ode_euler()` (utilisée pour l'inférence, méthode privée)
 - ✅ Ajoute la méthode `compute_loss()` (calcul de perte complet)
 - ✅ Intègre Decoder comme estimateur
+- ✅ **Compatibilité arrière** : `compute_loss()` supporte deux API (ancienne `x1/mask/mu` et nouvelle `target_sample/target_mask/encoder_output`)
+- ✅ **Optimisation de la structure du code** : Divise la logique en méthodes auxiliaires (`_initialize_noise`, `_create_time_steps`, `_sample_random_time`, `_build_conditional_path`, `_compute_velocity_target`)
+
+#### Corrections récentes (amélioration de la compatibilité arrière)
+- ✅ **Correction du TypeError lors de l'entraînement** : Résout le problème où `compute_loss()` recevait un argument de mot-clé inattendu `x1`
+- ✅ **Support double API** : La méthode `compute_loss()` accepte maintenant à la fois les anciens noms de paramètres (`x1`, `mask`, `mu`, `spks`, `cond`) et les nouveaux (`target_sample`, `target_mask`, `encoder_output`, `speaker_emb`, `condition`)
+- ✅ **Mapping automatique des paramètres** : Si les nouveaux paramètres sont `None`, récupère automatiquement les valeurs des anciens paramètres, garantissant que le code existant fonctionne sans modification
+- ✅ **Amélioration de la gestion d'erreurs** : Si aucune des deux API ne fournit les paramètres nécessaires, lance un message d'erreur clair
 
 **Méthodes clés** :
 - `forward()` : Diffusion avant (utilisée lors de l'inférence)
-- `solve_euler()` : Solveur Euler (résolution ODE)
-- `compute_loss()` : Calcule la perte Flow Matching
+- `_solve_ode_euler()` : Solveur Euler (résolution ODE, méthode privée)
+- `compute_loss()` : Calcule la perte Flow Matching (support des anciennes et nouvelles API)
+
+**Méthodes auxiliaires** :
+- `_initialize_noise()` : Initialise le bruit aléatoire
+- `_create_time_steps()` : Crée la séquence de pas de temps
+- `_sample_random_time()` : Échantillonne un temps aléatoire
+- `_build_conditional_path()` : Construit le chemin conditionnel
+- `_compute_velocity_target()` : Calcule la cible du champ de vitesse
 
 ---
 
@@ -473,6 +519,19 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 - 改进了错误处理
 - 添加了详细的中文注释
 
+#### 最新功能增强
+- ✅ **`save_figure_to_numpy()` 改进**：
+  - 原版使用已弃用的 `np.fromstring()`，仅支持旧版 matplotlib
+  - 当前版本使用 `np.frombuffer()`（推荐方式）
+  - 兼容新旧 matplotlib 版本（try-except 处理）
+  - 支持 RGBA 到 RGB 的转换（新版本 matplotlib 使用 buffer_rgba）
+- ✅ **`plot_tensor()` 增强**：
+  - 原版仅接受 numpy 数组，无类型检查
+  - 当前版本支持 `torch.Tensor` 和 `numpy.ndarray` 两种类型
+  - 自动处理批次维度（`ndim == 3` 时自动取第一个样本）
+  - 添加错误检查和验证（`ndim != 2` 时抛出清晰的异常）
+- ✅ **健壮性提升**：更好的错误处理，更广泛的类型支持，更兼容的版本支持
+
 ---
 
 **Nouvelles fonctionnalités** :
@@ -483,6 +542,19 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 - Compatible avec différentes versions de matplotlib
 - Amélioration de la gestion des erreurs
 - Ajout de commentaires détaillés en français
+
+#### Améliorations de fonctionnalités récentes
+- ✅ **Amélioration de `save_figure_to_numpy()`** :
+  - Version originale utilisait `np.fromstring()` déprécié, supportait uniquement l'ancienne version de matplotlib
+  - Version actuelle utilise `np.frombuffer()` (méthode recommandée)
+  - Compatible avec les anciennes et nouvelles versions de matplotlib (gestion try-except)
+  - Supporte la conversion RGBA vers RGB (les nouvelles versions de matplotlib utilisent buffer_rgba)
+- ✅ **Amélioration de `plot_tensor()`** :
+  - Version originale acceptait uniquement les tableaux numpy, sans vérification de type
+  - Version actuelle supporte `torch.Tensor` et `numpy.ndarray`
+  - Traitement automatique de la dimension batch (prend automatiquement le premier échantillon si `ndim == 3`)
+  - Ajoute la vérification et validation des erreurs (lance une exception claire si `ndim != 2`)
+- ✅ **Amélioration de la robustesse** : Meilleure gestion des erreurs, support de types plus large, support de versions plus compatible
 
 ---
 
@@ -519,8 +591,14 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 - ✅ 自动保存最佳模型和最新模型
 - ✅ 完整的错误处理（如果 checkpoint 不存在则自动从头开始）
 
+**训练配置优化**：
+- 梯度裁剪（`gradient_clip_val=1.0`）：防止梯度爆炸
+- 梯度累积（`accumulate_grad_batches=2`）：有效增大 batch size
+- 数据加载优化：`pin_memory=False` 和 `persistent_workers=False`，避免多进程环境下的连接重置错误
+- 模型检查点策略：监控验证损失，保存最佳3个模型和最新模型
+
 **新增函数**：
-- `find_latest_checkpoint()`：查找最新的 checkpoint 文件
+- `find_latest_checkpoint()`：查找最新的 checkpoint 文件（支持递归搜索和按修改时间排序）
 
 **命令行参数**：
 - `--checkpoint`：指定 checkpoint 路径
@@ -547,8 +625,14 @@ python train.py --no-resume
 - ✅ Sauvegarde automatique des meilleurs modèles et du dernier modèle
 - ✅ Gestion d'erreurs complète (démarrage automatique depuis le début si le checkpoint n'existe pas)
 
+**Optimisations de configuration d'entraînement** :
+- Découpage de gradient (`gradient_clip_val=1.0`) : prévient l'explosion du gradient
+- Accumulation de gradient (`accumulate_grad_batches=2`) : augmente efficacement la taille du batch
+- Optimisation du chargement des données : `pin_memory=False` et `persistent_workers=False`, évite les erreurs de réinitialisation de connexion en environnement multi-processus
+- Stratégie de points de contrôle : surveillance de la perte de validation, sauvegarde des 3 meilleurs modèles et du dernier modèle
+
 **Nouvelles fonctions** :
-- `find_latest_checkpoint()` : Trouve le dernier fichier checkpoint
+- `find_latest_checkpoint()` : Trouve le dernier fichier checkpoint (recherche récursive et tri par date de modification)
 
 **Arguments en ligne de commande** :
 - `--checkpoint` : Spécifie le chemin du checkpoint
@@ -599,6 +683,30 @@ python train.py --no-resume
 - `lightning_logs/` - Fichiers checkpoint
 - `generated_audio/` - Audio généré
 - `*.ckpt` - Tous les fichiers checkpoint
+
+---
+
+### 7. `matcha/data_management/ljspeech_datamodule.py`
+
+**数据加载优化**：
+- ✅ **修复 Ctrl+C 退出错误**：解决使用 `Ctrl+C` 退出训练时出现的 `ConnectionResetError`
+- ✅ **问题根源**：`pin_memory=True` 在多进程环境下会创建后台线程 `_pin_memory_loop`，当主进程被中断时，该线程尝试读取队列导致连接重置错误
+- ✅ **解决方案**：
+  - 在 `LJSpeechDataModule.__init__()` 中添加 `pin_memory=False` 和 `persistent_workers=False` 参数（默认值）
+  - 在 `DataLoader` 中应用这些参数
+  - 在 `train.py` 中显式设置这些参数为 `False`
+- ✅ **影响**：避免多进程环境下的连接重置错误，训练退出更加干净，对 mel 频谱图这种数据类型的性能影响很小（约 5-15%）
+
+---
+
+**Optimisation du chargement des données** :
+- ✅ **Correction de l'erreur de sortie Ctrl+C** : Résout le `ConnectionResetError` qui se produit lors de la sortie de l'entraînement avec `Ctrl+C`
+- ✅ **Cause racine** : `pin_memory=True` crée un thread en arrière-plan `_pin_memory_loop` en environnement multi-processus, et lorsque le processus principal est interrompu, ce thread tente de lire la queue, causant une erreur de réinitialisation de connexion
+- ✅ **Solution** :
+  - Ajoute les paramètres `pin_memory=False` et `persistent_workers=False` dans `LJSpeechDataModule.__init__()` (valeurs par défaut)
+  - Applique ces paramètres dans `DataLoader`
+  - Définit explicitement ces paramètres à `False` dans `train.py`
+- ✅ **Impact** : Évite les erreurs de réinitialisation de connexion en environnement multi-processus, sortie d'entraînement plus propre, impact de performance minimal pour les données de type spectrogramme mel (environ 5-15%)
 
 ---
 
@@ -782,23 +890,25 @@ python train.py --no-resume
 
 ---
 
-### 修改的文件：6 个
+### 修改的文件：7 个
 1. `matcha/utils/utils.py`
 2. `matcha/utils/__init__.py`
 3. `matcha/__init__.py`
 4. `train.py`
 5. `generate.py`
 6. `.gitignore`（已确认包含必要的规则）
+7. `matcha/data_management/ljspeech_datamodule.py`
 
 ---
 
-### Fichiers modifiés : 6
+### Fichiers modifiés : 7
 1. `matcha/utils/utils.py`
 2. `matcha/utils/__init__.py`
 3. `matcha/__init__.py`
 4. `train.py`
 5. `generate.py`
 6. `.gitignore` (règles nécessaires confirmées incluses)
+7. `matcha/data_management/ljspeech_datamodule.py`
 
 ---
 

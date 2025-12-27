@@ -7,24 +7,38 @@ import os
 from matcha.data_management.ljspeechDataset import LJSpeechDataset
 
 class LJSpeechDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir, batch_size=16, num_workers=4):
+    def __init__(self, data_dir, batch_size=16, num_workers=4, pin_memory=False, persistent_workers=False):
         super().__init__()
-        self.data_dir = data_dir # Dossier contenant train.txt et val.txt
+        self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
 
     def setup(self, stage=None):
-        # Chargement direct depuis les fichiers générés par votre script ljspeech.py
         self.train_ds = LJSpeechDataset(os.path.join(self.data_dir, "train.txt"))
         self.val_ds = LJSpeechDataset(os.path.join(self.data_dir, "val.txt"))
 
     def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=self.batch_size, shuffle=True, 
-                          num_workers=self.num_workers, pin_memory=True, collate_fn=self.collate)
+        return DataLoader(
+            self.train_ds, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=(self.persistent_workers and self.num_workers > 0),
+            collate_fn=self.collate
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=self.batch_size, 
-                          num_workers=self.num_workers, collate_fn=self.collate)
+        return DataLoader(
+            self.val_ds, 
+            batch_size=self.batch_size, 
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=(self.persistent_workers and self.num_workers > 0),
+            collate_fn=self.collate
+        )
     
     def collate(self, batch):
         """

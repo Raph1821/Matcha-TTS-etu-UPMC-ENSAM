@@ -105,28 +105,54 @@ class BASECFM(torch.nn.Module, ABC):
         """Calcule la cible du champ de vitesse u = x_1 - (1 - σ_min) * z"""
         return target - (1 - self.min_noise_std) * noise
 
-    def compute_loss(self, target_sample, target_mask, encoder_output, speaker_emb=None, condition=None):
+    def compute_loss(
+        self,
+        # API historique (utilisé par Matcha-TTS)
+        x1=None,
+        mask=None,
+        mu=None,
+        spks=None,
+        cond=None,
+        # API plus explicite (recommandé)
+        target_sample=None,
+        target_mask=None,
+        encoder_output=None,
+        speaker_emb=None,
+        condition=None,
+    ):
         """
-        Calcule la perte de flow matching conditionnel
-        
-        Args:
-            target_sample: échantillon cible, shape (batch_size, n_feats, mel_timesteps)
-            target_mask: masque cible, shape (batch_size, 1, mel_timesteps)
-            encoder_output: sortie de l'encodeur, shape (batch_size, n_feats, mel_timesteps)
-            speaker_emb: embedding du locuteur, shape (batch_size, spk_emb_dim)
-            
-        Returns:
-            loss: perte de flow matching (scalaire)
-            path_point: point sur le chemin y_t
+        Calcule la perte de flow matching conditionnel.
+
+        Compatibilité: supporte à la fois l'API historique (x1/mask/mu/spks/cond)
+        et l'API explicite (target_sample/target_mask/encoder_output/speaker_emb/condition).
         """
+        if target_sample is None:
+            target_sample = x1
+        if target_mask is None:
+            target_mask = mask
+        if encoder_output is None:
+            encoder_output = mu
+        if speaker_emb is None:
+            speaker_emb = spks
+        if condition is None:
+            condition = cond
+
+        if target_sample is None or target_mask is None or encoder_output is None:
+            raise TypeError(
+                "compute_loss attend soit (x1, mask, mu, ...), soit "
+                "(target_sample, target_mask, encoder_output, ...)."
+            )
+
         batch_size = encoder_output.shape[0]
         random_time = self._sample_random_time(batch_size, encoder_output.device, encoder_output.dtype)
         initial_noise = torch.randn_like(target_sample)
         path_point = self._build_conditional_path(initial_noise, target_sample, random_time)
         velocity_target = self._compute_velocity_target(target_sample, initial_noise)
+
         predicted_velocity = self.velocity_estimator(
-            path_point, target_mask, encoder_output, random_time.squeeze(), speaker_emb
+            path_point, target_mask, encoder_output, random_time.squeeze(), speaker_emb, condition
         )
+
         loss = F.mse_loss(predicted_velocity, velocity_target, reduction="sum") / (
             torch.sum(target_mask) * velocity_target.shape[1]
         )
