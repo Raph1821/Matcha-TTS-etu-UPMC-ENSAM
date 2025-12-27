@@ -1,9 +1,14 @@
-""" from https://github.com/jaywalnut310/glow-tts """
+"""
+Module d'encodage de texte
+
+Implémentation de l'encodeur de texte basé sur Transformer avec prédiction de durée.
+Version de reproduction: restructurée avec amélioration de la structure et des noms de variables.
+"""
 
 import math
 
 import torch
-import torch.nn as nn  # pylint: disable=consider-using-from-import
+import torch.nn as nn
 from einops import rearrange
 
 from matcha.utils.pylogger import get_pylogger
@@ -13,292 +18,299 @@ log = get_pylogger(__name__)
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, channels, eps=1e-4):
+    """Normalisation de couche personnalisée"""
+    
+    def __init__(self, feature_dim, eps=1e-4):
         super().__init__()
-        self.channels = channels
+        self.feature_dim = feature_dim
         self.eps = eps
-
-        self.gamma = torch.nn.Parameter(torch.ones(channels))
-        self.beta = torch.nn.Parameter(torch.zeros(channels))
+        self.scale = torch.nn.Parameter(torch.ones(feature_dim))
+        self.bias = torch.nn.Parameter(torch.zeros(feature_dim))
 
     def forward(self, x):
-        n_dims = len(x.shape)
+        num_dims = len(x.shape)
         mean = torch.mean(x, 1, keepdim=True)
         variance = torch.mean((x - mean) ** 2, 1, keepdim=True)
-
-        x = (x - mean) * torch.rsqrt(variance + self.eps)
-
-        shape = [1, -1] + [1] * (n_dims - 2)
-        x = x * self.gamma.view(*shape) + self.beta.view(*shape)
-        return x
+        normalized = (x - mean) * torch.rsqrt(variance + self.eps)
+        shape = [1, -1] + [1] * (num_dims - 2)
+        return normalized * self.scale.view(*shape) + self.bias.view(*shape)
 
 
 class ConvReluNorm(nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels, kernel_size, n_layers, p_dropout):
+    """Bloc de convolution avec ReLU et normalisation, avec connexion résiduelle"""
+    
+    def __init__(self, input_channels, hidden_channels, output_channels, kernel_size, num_layers, dropout_rate):
         super().__init__()
-        self.in_channels = in_channels
+        self.input_channels = input_channels
         self.hidden_channels = hidden_channels
-        self.out_channels = out_channels
+        self.output_channels = output_channels
         self.kernel_size = kernel_size
-        self.n_layers = n_layers
-        self.p_dropout = p_dropout
+        self.num_layers = num_layers
+        self.dropout_rate = dropout_rate
 
-        self.conv_layers = torch.nn.ModuleList()
-        self.norm_layers = torch.nn.ModuleList()
-        self.conv_layers.append(torch.nn.Conv1d(in_channels, hidden_channels, kernel_size, padding=kernel_size // 2))
-        self.norm_layers.append(LayerNorm(hidden_channels))
-        self.relu_drop = torch.nn.Sequential(torch.nn.ReLU(), torch.nn.Dropout(p_dropout))
-        for _ in range(n_layers - 1):
-            self.conv_layers.append(
-                torch.nn.Conv1d(hidden_channels, hidden_channels, kernel_size, padding=kernel_size // 2)
+        self.convolutions = torch.nn.ModuleList()
+        self.normalizations = torch.nn.ModuleList()
+        
+        # Première couche
+        padding = kernel_size // 2
+        self.convolutions.append(torch.nn.Conv1d(input_channels, hidden_channels, kernel_size, padding=padding))
+        self.normalizations.append(LayerNorm(hidden_channels))
+        
+        # Activation et dropout
+        self.activation_dropout = torch.nn.Sequential(torch.nn.ReLU(), torch.nn.Dropout(dropout_rate))
+        
+        # Couches supplémentaires
+        for _ in range(num_layers - 1):
+            self.convolutions.append(
+                torch.nn.Conv1d(hidden_channels, hidden_channels, kernel_size, padding=padding)
             )
-            self.norm_layers.append(LayerNorm(hidden_channels))
-        self.proj = torch.nn.Conv1d(hidden_channels, out_channels, 1)
-        self.proj.weight.data.zero_()
-        self.proj.bias.data.zero_()
+            self.normalizations.append(LayerNorm(hidden_channels))
+        
+        # Projection finale avec initialisation à zéro
+        self.projection = torch.nn.Conv1d(hidden_channels, output_channels, 1)
+        self.projection.weight.data.zero_()
+        self.projection.bias.data.zero_()
 
     def forward(self, x, x_mask):
-        x_org = x
-        for i in range(self.n_layers):
-            x = self.conv_layers[i](x * x_mask)
-            x = self.norm_layers[i](x)
-            x = self.relu_drop(x)
-        x = x_org + self.proj(x)
+        residual = x
+        for i in range(self.num_layers):
+            x = self.convolutions[i](x * x_mask)
+            x = self.normalizations[i](x)
+            x = self.activation_dropout(x)
+        x = residual + self.projection(x)
         return x * x_mask
 
 
 class DurationPredictor(nn.Module):
-    def __init__(self, in_channels, filter_channels, kernel_size, p_dropout):
+    """Prédicteur de durée pour chaque token"""
+    
+    def __init__(self, input_channels, filter_channels, kernel_size, dropout_rate):
         super().__init__()
-        self.in_channels = in_channels
+        self.input_channels = input_channels
         self.filter_channels = filter_channels
-        self.p_dropout = p_dropout
+        self.dropout_rate = dropout_rate
 
-        self.drop = torch.nn.Dropout(p_dropout)
-        self.conv_1 = torch.nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.norm_1 = LayerNorm(filter_channels)
-        self.conv_2 = torch.nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.norm_2 = LayerNorm(filter_channels)
-        self.proj = torch.nn.Conv1d(filter_channels, 1, 1)
+        self.dropout = torch.nn.Dropout(dropout_rate)
+        padding = kernel_size // 2
+        
+        self.conv_layer_1 = torch.nn.Conv1d(input_channels, filter_channels, kernel_size, padding=padding)
+        self.norm_layer_1 = LayerNorm(filter_channels)
+        
+        self.conv_layer_2 = torch.nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=padding)
+        self.norm_layer_2 = LayerNorm(filter_channels)
+        
+        self.output_projection = torch.nn.Conv1d(filter_channels, 1, 1)
 
     def forward(self, x, x_mask):
-        x = self.conv_1(x * x_mask)
+        x = self.conv_layer_1(x * x_mask)
         x = torch.relu(x)
-        x = self.norm_1(x)
-        x = self.drop(x)
-        x = self.conv_2(x * x_mask)
+        x = self.norm_layer_1(x)
+        x = self.dropout(x)
+        
+        x = self.conv_layer_2(x * x_mask)
         x = torch.relu(x)
-        x = self.norm_2(x)
-        x = self.drop(x)
-        x = self.proj(x * x_mask)
+        x = self.norm_layer_2(x)
+        x = self.dropout(x)
+        
+        x = self.output_projection(x * x_mask)
         return x * x_mask
 
 
 class RotaryPositionalEmbeddings(nn.Module):
-    """
-    ## RoPE module
-
-    Rotary encoding transforms pairs of features by rotating in the 2D plane.
-    That is, it organizes the $d$ features as $\frac{d}{2}$ pairs.
-    Each pair can be considered a coordinate in a 2D plane, and the encoding will rotate it
-    by an angle depending on the position of the token.
-    """
-
-    def __init__(self, d: int, base: int = 10_000):
-        r"""
-        * `d` is the number of features $d$
-        * `base` is the constant used for calculating $\Theta$
-        """
+    """Encodage positionnel rotatif (RoPE)"""
+    
+    def __init__(self, feature_dim, base_freq=10_000):
         super().__init__()
-
-        self.base = base
-        self.d = int(d)
-        self.cos_cached = None
-        self.sin_cached = None
+        self.base_freq = base_freq
+        self.feature_dim = int(feature_dim)
+        self.cos_cache = None
+        self.sin_cache = None
 
     def _build_cache(self, x: torch.Tensor):
-        r"""
-        Cache $\cos$ and $\sin$ values
-        """
-        # Return if cache is already built
-        if self.cos_cached is not None and x.shape[0] <= self.cos_cached.shape[0]:
+        """Construit le cache des valeurs cos et sin"""
+        if self.cos_cache is not None and x.shape[0] <= self.cos_cache.shape[0]:
             return
 
-        # Get sequence length
-        seq_len = x.shape[0]
+        seq_length = x.shape[0]
+        half_dim = self.feature_dim // 2
+        
+        # Calcul des fréquences theta
+        theta = 1.0 / (self.base_freq ** (torch.arange(0, self.feature_dim, 2).float() / self.feature_dim)).to(x.device)
+        
+        # Index de position
+        position_indices = torch.arange(seq_length, device=x.device).float().to(x.device)
+        
+        # Produit position * theta
+        position_theta = torch.einsum("n,d->nd", position_indices, theta)
+        
+        # Concaténation pour duplication
+        position_theta_duplicated = torch.cat([position_theta, position_theta], dim=1)
+        
+        # Cache
+        self.cos_cache = position_theta_duplicated.cos()[:, None, None, :]
+        self.sin_cache = position_theta_duplicated.sin()[:, None, None, :]
 
-        # $\Theta = {\theta_i = 10000^{-\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
-        theta = 1.0 / (self.base ** (torch.arange(0, self.d, 2).float() / self.d)).to(x.device)
-
-        # Create position indexes `[0, 1, ..., seq_len - 1]`
-        seq_idx = torch.arange(seq_len, device=x.device).float().to(x.device)
-
-        # Calculate the product of position index and $\theta_i$
-        idx_theta = torch.einsum("n,d->nd", seq_idx, theta)
-
-        # Concatenate so that for row $m$ we have
-        # $[m \theta_0, m \theta_1, ..., m \theta_{\frac{d}{2}}, m \theta_0, m \theta_1, ..., m \theta_{\frac{d}{2}}]$
-        idx_theta2 = torch.cat([idx_theta, idx_theta], dim=1)
-
-        # Cache them
-        self.cos_cached = idx_theta2.cos()[:, None, None, :]
-        self.sin_cached = idx_theta2.sin()[:, None, None, :]
-
-    def _neg_half(self, x: torch.Tensor):
-        # $\frac{d}{2}$
-        d_2 = self.d // 2
-
-        # Calculate $[-x^{(\frac{d}{2} + 1)}, -x^{(\frac{d}{2} + 2)}, ..., -x^{(d)}, x^{(1)}, x^{(2)}, ..., x^{(\frac{d}{2})}]$
-        return torch.cat([-x[:, :, :, d_2:], x[:, :, :, :d_2]], dim=-1)
+    def _apply_neg_half_transform(self, x: torch.Tensor):
+        """Applique la transformation [-x[d/2:], x[:d/2]]"""
+        half_dim = self.feature_dim // 2
+        return torch.cat([-x[:, :, :, half_dim:], x[:, :, :, :half_dim]], dim=-1)
 
     def forward(self, x: torch.Tensor):
-        """
-        * `x` is the Tensor at the head of a key or a query with shape `[seq_len, batch_size, n_heads, d]`
-        """
-        # Cache $\cos$ and $\sin$ values
+        """Applique l'encodage positionnel rotatif"""
         x = rearrange(x, "b h t d -> t b h d")
-
         self._build_cache(x)
-
-        # Split the features, we can choose to apply rotary embeddings only to a partial set of features.
-        x_rope, x_pass = x[..., : self.d], x[..., self.d :]
-
-        # Calculate
-        # $[-x^{(\frac{d}{2} + 1)}, -x^{(\frac{d}{2} + 2)}, ..., -x^{(d)}, x^{(1)}, x^{(2)}, ..., x^{(\frac{d}{2})}]$
-        neg_half_x = self._neg_half(x_rope)
-
-        x_rope = (x_rope * self.cos_cached[: x.shape[0]]) + (neg_half_x * self.sin_cached[: x.shape[0]])
-
+        
+        x_rope, x_pass = x[..., : self.feature_dim], x[..., self.feature_dim :]
+        neg_half_x = self._apply_neg_half_transform(x_rope)
+        
+        x_rope = (x_rope * self.cos_cache[: x.shape[0]]) + (neg_half_x * self.sin_cache[: x.shape[0]])
+        
         return rearrange(torch.cat((x_rope, x_pass), dim=-1), "t b h d -> b h t d")
 
 
 class MultiHeadAttention(nn.Module):
+    """Attention multi-têtes avec encodage positionnel rotatif"""
+    
     def __init__(
         self,
         channels,
-        out_channels,
-        n_heads,
+        output_channels,
+        num_heads,
         heads_share=True,
-        p_dropout=0.0,
+        dropout_rate=0.0,
         proximal_bias=False,
         proximal_init=False,
     ):
         super().__init__()
-        assert channels % n_heads == 0
+        assert channels % num_heads == 0
 
         self.channels = channels
-        self.out_channels = out_channels
-        self.n_heads = n_heads
+        self.output_channels = output_channels
+        self.num_heads = num_heads
         self.heads_share = heads_share
         self.proximal_bias = proximal_bias
-        self.p_dropout = p_dropout
-        self.attn = None
+        self.dropout_rate = dropout_rate
+        self.attention_weights = None
 
-        self.k_channels = channels // n_heads
-        self.conv_q = torch.nn.Conv1d(channels, channels, 1)
-        self.conv_k = torch.nn.Conv1d(channels, channels, 1)
-        self.conv_v = torch.nn.Conv1d(channels, channels, 1)
+        self.head_dim = channels // num_heads
+        
+        self.query_conv = torch.nn.Conv1d(channels, channels, 1)
+        self.key_conv = torch.nn.Conv1d(channels, channels, 1)
+        self.value_conv = torch.nn.Conv1d(channels, channels, 1)
 
-        # from https://nn.labml.ai/transformers/rope/index.html
-        self.query_rotary_pe = RotaryPositionalEmbeddings(self.k_channels * 0.5)
-        self.key_rotary_pe = RotaryPositionalEmbeddings(self.k_channels * 0.5)
+        # Encodage positionnel rotatif
+        self.query_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
+        self.key_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
 
-        self.conv_o = torch.nn.Conv1d(channels, out_channels, 1)
-        self.drop = torch.nn.Dropout(p_dropout)
+        self.output_conv = torch.nn.Conv1d(channels, output_channels, 1)
+        self.dropout = torch.nn.Dropout(dropout_rate)
 
-        torch.nn.init.xavier_uniform_(self.conv_q.weight)
-        torch.nn.init.xavier_uniform_(self.conv_k.weight)
+        # Initialisation Xavier
+        torch.nn.init.xavier_uniform_(self.query_conv.weight)
+        torch.nn.init.xavier_uniform_(self.key_conv.weight)
         if proximal_init:
-            self.conv_k.weight.data.copy_(self.conv_q.weight.data)
-            self.conv_k.bias.data.copy_(self.conv_q.bias.data)
-        torch.nn.init.xavier_uniform_(self.conv_v.weight)
+            self.key_conv.weight.data.copy_(self.query_conv.weight.data)
+            self.key_conv.bias.data.copy_(self.query_conv.bias.data)
+        torch.nn.init.xavier_uniform_(self.value_conv.weight)
 
-    def forward(self, x, c, attn_mask=None):
-        q = self.conv_q(x)
-        k = self.conv_k(c)
-        v = self.conv_v(c)
+    def forward(self, x, context, attention_mask=None):
+        query = self.query_conv(x)
+        key = self.key_conv(context)
+        value = self.value_conv(context)
 
-        x, self.attn = self.attention(q, k, v, mask=attn_mask)
+        output, self.attention_weights = self._compute_attention(query, key, value, mask=attention_mask)
+        output = self.output_conv(output)
+        return output
 
-        x = self.conv_o(x)
-        return x
+    def _compute_attention(self, query, key, value, mask=None):
+        """Calcule l'attention multi-têtes"""
+        batch_size, channels, key_len, query_len = (*key.size(), query.size(2))
+        
+        query = rearrange(query, "b (h c) t-> b h t c", h=self.num_heads)
+        key = rearrange(key, "b (h c) t-> b h t c", h=self.num_heads)
+        value = rearrange(value, "b (h c) t-> b h t c", h=self.num_heads)
 
-    def attention(self, query, key, value, mask=None):
-        b, d, t_s, t_t = (*key.size(), query.size(2))
-        query = rearrange(query, "b (h c) t-> b h t c", h=self.n_heads)
-        key = rearrange(key, "b (h c) t-> b h t c", h=self.n_heads)
-        value = rearrange(value, "b (h c) t-> b h t c", h=self.n_heads)
+        query = self.query_rope(query)
+        key = self.key_rope(key)
 
-        query = self.query_rotary_pe(query)
-        key = self.key_rotary_pe(key)
-
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.k_channels)
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
 
         if self.proximal_bias:
-            assert t_s == t_t, "Proximal bias is only available for self-attention."
-            scores = scores + self._attention_bias_proximal(t_s).to(device=scores.device, dtype=scores.dtype)
+            assert key_len == query_len, "Le biais proximal n'est disponible que pour l'auto-attention."
+            scores = scores + self._get_proximal_bias(key_len).to(device=scores.device, dtype=scores.dtype)
+        
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e4)
-        p_attn = torch.nn.functional.softmax(scores, dim=-1)
-        p_attn = self.drop(p_attn)
-        output = torch.matmul(p_attn, value)
-        output = output.transpose(2, 3).contiguous().view(b, d, t_t)
-        return output, p_attn
+        
+        attention_probs = torch.nn.functional.softmax(scores, dim=-1)
+        attention_probs = self.dropout(attention_probs)
+        output = torch.matmul(attention_probs, value)
+        output = output.transpose(2, 3).contiguous().view(batch_size, channels, query_len)
+        return output, attention_probs
 
     @staticmethod
-    def _attention_bias_proximal(length):
-        r = torch.arange(length, dtype=torch.float32)
-        diff = torch.unsqueeze(r, 0) - torch.unsqueeze(r, 1)
-        return torch.unsqueeze(torch.unsqueeze(-torch.log1p(torch.abs(diff)), 0), 0)
+    def _get_proximal_bias(length):
+        """Calcule le biais proximal pour l'auto-attention"""
+        positions = torch.arange(length, dtype=torch.float32)
+        position_diff = torch.unsqueeze(positions, 0) - torch.unsqueeze(positions, 1)
+        return torch.unsqueeze(torch.unsqueeze(-torch.log1p(torch.abs(position_diff)), 0), 0)
 
 
 class FFN(nn.Module):
-    def __init__(self, in_channels, out_channels, filter_channels, kernel_size, p_dropout=0.0):
+    """Réseau feed-forward avec convolutions"""
+    
+    def __init__(self, input_channels, output_channels, filter_channels, kernel_size, dropout_rate=0.0):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.input_channels = input_channels
+        self.output_channels = output_channels
         self.filter_channels = filter_channels
         self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
+        self.dropout_rate = dropout_rate
 
-        self.conv_1 = torch.nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.conv_2 = torch.nn.Conv1d(filter_channels, out_channels, kernel_size, padding=kernel_size // 2)
-        self.drop = torch.nn.Dropout(p_dropout)
+        padding = kernel_size // 2
+        self.conv_layer_1 = torch.nn.Conv1d(input_channels, filter_channels, kernel_size, padding=padding)
+        self.conv_layer_2 = torch.nn.Conv1d(filter_channels, output_channels, kernel_size, padding=padding)
+        self.dropout = torch.nn.Dropout(dropout_rate)
 
     def forward(self, x, x_mask):
-        x = self.conv_1(x * x_mask)
+        x = self.conv_layer_1(x * x_mask)
         x = torch.relu(x)
-        x = self.drop(x)
-        x = self.conv_2(x * x_mask)
+        x = self.dropout(x)
+        x = self.conv_layer_2(x * x_mask)
         return x * x_mask
 
 
 class Encoder(nn.Module):
+    """Encodeur Transformer avec attention multi-têtes et FFN"""
+    
     def __init__(
         self,
         hidden_channels,
         filter_channels,
-        n_heads,
-        n_layers,
+        num_heads,
+        num_layers,
         kernel_size=1,
-        p_dropout=0.0,
+        dropout_rate=0.0,
         **kwargs,
     ):
         super().__init__()
         self.hidden_channels = hidden_channels
         self.filter_channels = filter_channels
-        self.n_heads = n_heads
-        self.n_layers = n_layers
+        self.num_heads = num_heads
+        self.num_layers = num_layers
         self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
+        self.dropout_rate = dropout_rate
 
-        self.drop = torch.nn.Dropout(p_dropout)
-        self.attn_layers = torch.nn.ModuleList()
+        self.dropout = torch.nn.Dropout(dropout_rate)
+        self.attention_layers = torch.nn.ModuleList()
         self.norm_layers_1 = torch.nn.ModuleList()
         self.ffn_layers = torch.nn.ModuleList()
         self.norm_layers_2 = torch.nn.ModuleList()
-        for _ in range(self.n_layers):
-            self.attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels, n_heads, p_dropout=p_dropout))
+        
+        for _ in range(self.num_layers):
+            self.attention_layers.append(
+                MultiHeadAttention(hidden_channels, hidden_channels, num_heads, dropout_rate=dropout_rate)
+            )
             self.norm_layers_1.append(LayerNorm(hidden_channels))
             self.ffn_layers.append(
                 FFN(
@@ -306,26 +318,31 @@ class Encoder(nn.Module):
                     hidden_channels,
                     filter_channels,
                     kernel_size,
-                    p_dropout=p_dropout,
+                    dropout_rate=dropout_rate,
                 )
             )
             self.norm_layers_2.append(LayerNorm(hidden_channels))
 
     def forward(self, x, x_mask):
-        attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
-        for i in range(self.n_layers):
+        attention_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
+        
+        for i in range(self.num_layers):
             x = x * x_mask
-            y = self.attn_layers[i](x, x, attn_mask)
-            y = self.drop(y)
-            x = self.norm_layers_1[i](x + y)
-            y = self.ffn_layers[i](x, x_mask)
-            y = self.drop(y)
-            x = self.norm_layers_2[i](x + y)
+            attn_output = self.attention_layers[i](x, x, attention_mask)
+            attn_output = self.dropout(attn_output)
+            x = self.norm_layers_1[i](x + attn_output)
+            
+            ffn_output = self.ffn_layers[i](x, x_mask)
+            ffn_output = self.dropout(ffn_output)
+            x = self.norm_layers_2[i](x + ffn_output)
+        
         x = x * x_mask
         return x
 
 
 class TextEncoder(nn.Module):
+    """Encodeur de texte avec prédiction de durée"""
+    
     def __init__(
         self,
         encoder_type,
@@ -337,29 +354,34 @@ class TextEncoder(nn.Module):
     ):
         super().__init__()
         self.encoder_type = encoder_type
-        self.n_vocab = n_vocab
-        self.n_feats = encoder_params.n_feats
-        self.n_channels = encoder_params.n_channels
-        self.spk_emb_dim = spk_emb_dim
-        self.n_spks = n_spks
+        self.vocab_size = n_vocab
+        self.feature_dim = encoder_params.n_feats
+        self.channel_dim = encoder_params.n_channels
+        self.speaker_emb_dim = spk_emb_dim
+        self.num_speakers = n_spks
 
-        self.emb = torch.nn.Embedding(n_vocab, self.n_channels)
-        torch.nn.init.normal_(self.emb.weight, 0.0, self.n_channels**-0.5)
+        # Embedding de vocabulaire
+        self.embedding = torch.nn.Embedding(n_vocab, self.channel_dim)
+        torch.nn.init.normal_(self.embedding.weight, 0.0, self.channel_dim**-0.5)
 
+        # Pre-net conditionnel
         if encoder_params.prenet:
             self.prenet = ConvReluNorm(
-                self.n_channels,
-                self.n_channels,
-                self.n_channels,
+                self.channel_dim,
+                self.channel_dim,
+                self.channel_dim,
                 kernel_size=5,
-                n_layers=3,
-                p_dropout=0.5,
+                num_layers=3,
+                dropout_rate=0.5,
             )
         else:
             self.prenet = lambda x, x_mask: x
 
+        # Calcul des canaux d'entrée de l'encodeur
+        encoder_input_channels = self.channel_dim + (spk_emb_dim if n_spks > 1 else 0)
+        
         self.encoder = Encoder(
-            encoder_params.n_channels + (spk_emb_dim if n_spks > 1 else 0),
+            encoder_input_channels,
             encoder_params.filter_channels,
             encoder_params.n_heads,
             encoder_params.n_layers,
@@ -367,44 +389,53 @@ class TextEncoder(nn.Module):
             encoder_params.p_dropout,
         )
 
-        self.proj_m = torch.nn.Conv1d(self.n_channels + (spk_emb_dim if n_spks > 1 else 0), self.n_feats, 1)
-        self.proj_w = DurationPredictor(
-            self.n_channels + (spk_emb_dim if n_spks > 1 else 0),
+        # Projection vers l'espace acoustique
+        self.mean_projection = torch.nn.Conv1d(encoder_input_channels, self.feature_dim, 1)
+        
+        # Prédicteur de durée
+        self.duration_predictor = DurationPredictor(
+            encoder_input_channels,
             duration_predictor_params.filter_channels_dp,
             duration_predictor_params.kernel_size,
             duration_predictor_params.p_dropout,
         )
 
-    def forward(self, x, x_lengths, spks=None):
-        """Run forward pass to the transformer based encoder and duration predictor
-
-        Args:
-            x (torch.Tensor): text input
-                shape: (batch_size, max_text_length)
-            x_lengths (torch.Tensor): text input lengths
-                shape: (batch_size,)
-            spks (torch.Tensor, optional): speaker ids. Defaults to None.
-                shape: (batch_size,)
-
-        Returns:
-            mu (torch.Tensor): average output of the encoder
-                shape: (batch_size, n_feats, max_text_length)
-            logw (torch.Tensor): log duration predicted by the duration predictor
-                shape: (batch_size, 1, max_text_length)
-            x_mask (torch.Tensor): mask for the text input
-                shape: (batch_size, 1, max_text_length)
+    def forward(self, text_input, text_lengths, speaker_emb=None):
         """
-        x = self.emb(x) * math.sqrt(self.n_channels)
-        x = torch.transpose(x, 1, -1)
-        x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
+        Passe avant de l'encodeur de texte
+        
+        Args:
+            text_input: entrée de texte, shape (batch_size, max_text_length)
+            text_lengths: longueurs des séquences, shape (batch_size,)
+            speaker_emb: embedding du locuteur, shape (batch_size, speaker_emb_dim)
+            
+        Returns:
+            mean_output: sortie moyenne de l'encodeur, shape (batch_size, n_feats, max_text_length)
+            log_duration: log durée prédite, shape (batch_size, 1, max_text_length)
+            text_mask: masque pour l'entrée, shape (batch_size, 1, max_text_length)
+        """
+        # Embedding et masque
+        embedded = self.embedding(text_input) * math.sqrt(self.channel_dim)
+        embedded = torch.transpose(embedded, 1, -1)
+        text_mask = torch.unsqueeze(sequence_mask(text_lengths, embedded.size(2)), 1).to(embedded.dtype)
 
-        x = self.prenet(x, x_mask)
-        if self.n_spks > 1:
-            x = torch.cat([x, spks.unsqueeze(-1).repeat(1, 1, x.shape[-1])], dim=1)
-        x = self.encoder(x, x_mask)
-        mu = self.proj_m(x) * x_mask
+        # Pre-net
+        encoded = self.prenet(embedded, text_mask)
+        
+        # Concaténation de l'embedding du locuteur si nécessaire
+        if self.num_speakers > 1:
+            if speaker_emb is not None:
+                speaker_expanded = speaker_emb.unsqueeze(-1).repeat(1, 1, encoded.shape[-1])
+                encoded = torch.cat([encoded, speaker_expanded], dim=1)
+        
+        # Encodage
+        encoded = self.encoder(encoded, text_mask)
+        
+        # Projection vers l'espace acoustique
+        mean_output = self.mean_projection(encoded) * text_mask
 
-        x_dp = torch.detach(x)
-        logw = self.proj_w(x_dp, x_mask)
+        # Prédiction de durée (avec détachement du gradient)
+        encoded_detached = torch.detach(encoded)
+        log_duration = self.duration_predictor(encoded_detached, text_mask)
 
-        return mu, logw, x_mask
+        return mean_output, log_duration, text_mask
