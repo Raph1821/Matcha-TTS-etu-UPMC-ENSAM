@@ -20,7 +20,7 @@ from matcha.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 
-class MatchaTTS(BaseLightningClass):  # 🍵
+class MatchaTTS(BaseLightningClass):  # 
     def __init__(
         self,
         n_vocab,
