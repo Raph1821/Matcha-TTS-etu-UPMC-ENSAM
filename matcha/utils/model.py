@@ -25,15 +25,12 @@ def create_sequence_mask(sequence_lengths, max_sequence_length=None):
     if max_sequence_length is None:
         max_sequence_length = sequence_lengths.max().item()
     
-    # Créer un tenseur d'indices [0, 1, 2, ..., max_length-1]
     position_indices = torch.arange(
         max_sequence_length,
         dtype=sequence_lengths.dtype,
         device=sequence_lengths.device
     )
     
-    # Comparer chaque position avec la longueur réelle de chaque séquence
-    # shape: (batch_size, max_sequence_length)
     return position_indices.unsqueeze(0) < sequence_lengths.unsqueeze(1)
 
 
@@ -52,11 +49,8 @@ def adjust_length_for_downsampling(sequence_length, num_downsampling_layers=2):
         longueur ajustée (entier)
     """
     downsampling_factor = 2 ** num_downsampling_layers
-    
-    # Arrondir à la valeur supérieure divisible par le facteur
     adjusted_length = torch.ceil(sequence_length / downsampling_factor) * downsampling_factor
     
-    # Convertir en entier (sauf en mode ONNX export)
     if not torch.onnx.is_in_onnx_export():
         return int(adjusted_length.item())
     else:
@@ -97,35 +91,24 @@ def build_alignment_path(duration_tensor, attention_mask):
     device = duration_tensor.device
     batch_size, num_tokens, num_frames = attention_mask.shape
     
-    # Calculer les durées cumulatives pour chaque token
     cumulative_durations = torch.cumsum(duration_tensor, dim=1)
     
-    # Initialiser la carte d'alignement
     alignment_path = torch.zeros(
         batch_size, num_tokens, num_frames,
         dtype=attention_mask.dtype,
         device=device
     )
     
-    # Aplatir les durées cumulatives pour traitement par batch
     cumulative_flat = cumulative_durations.view(batch_size * num_tokens)
-    
-    # Créer un masque basé sur les durées cumulatives
     cumulative_mask = create_sequence_mask(cumulative_flat, num_frames)
     cumulative_mask = cumulative_mask.to(attention_mask.dtype)
     
-    # Remodeler en (batch_size, num_tokens, num_frames)
     alignment_path = cumulative_mask.view(batch_size, num_tokens, num_frames)
     
-    # Calculer les différences pour obtenir les frontières d'alignement
-    # Padding pour permettre la soustraction avec la position précédente
     padding_config = [[0, 0], [1, 0], [0, 0]]
     padded_path = F.pad(alignment_path, _reverse_padding_shape(padding_config))
     
-    # Soustraire la position précédente pour obtenir les frontières
     alignment_path = alignment_path - padded_path[:, :-1, :]
-    
-    # Appliquer le masque d'attention
     alignment_path = alignment_path * attention_mask
     
     return alignment_path
@@ -145,10 +128,7 @@ def compute_duration_loss(predicted_log_durations, target_log_durations, sequenc
     Returns:
         perte de durée normalisée (scalaire)
     """
-    # Calculer la différence au carré
     squared_diff = (predicted_log_durations - target_log_durations) ** 2
-    
-    # Somme des différences au carré, normalisée par la somme des longueurs
     total_squared_diff = torch.sum(squared_diff)
     total_length = torch.sum(sequence_lengths)
     
@@ -167,7 +147,6 @@ def apply_normalization(data_tensor, mean_value, std_value):
     Returns:
         données normalisées, même shape que data_tensor
     """
-    # Convertir mean_value en tenseur si nécessaire
     if not isinstance(mean_value, (float, int)):
         if isinstance(mean_value, list):
             mean_tensor = torch.tensor(mean_value, dtype=data_tensor.dtype, device=data_tensor.device)
@@ -181,7 +160,6 @@ def apply_normalization(data_tensor, mean_value, std_value):
     else:
         mean_tensor = mean_value
 
-    # Convertir std_value en tenseur si nécessaire
     if not isinstance(std_value, (float, int)):
         if isinstance(std_value, list):
             std_tensor = torch.tensor(std_value, dtype=data_tensor.dtype, device=data_tensor.device)
@@ -195,9 +173,7 @@ def apply_normalization(data_tensor, mean_value, std_value):
     else:
         std_tensor = std_value
 
-    # Appliquer la normalisation: (x - mean) / std
     normalized = (data_tensor - mean_tensor) / std_tensor
-    
     return normalized
 
 
@@ -215,7 +191,6 @@ def apply_denormalization(data_tensor, mean_value, std_value):
     Returns:
         données dénormalisées, même shape que data_tensor
     """
-    # Convertir mean_value en tenseur si nécessaire
     if isinstance(mean_value, (float, int)):
         mean_tensor = mean_value
     else:
@@ -229,7 +204,6 @@ def apply_denormalization(data_tensor, mean_value, std_value):
             mean_tensor = mean_value
         mean_tensor = mean_tensor.unsqueeze(-1)
 
-    # Convertir std_value en tenseur si nécessaire
     if isinstance(std_value, (float, int)):
         std_tensor = std_value
     else:
@@ -243,13 +217,10 @@ def apply_denormalization(data_tensor, mean_value, std_value):
             std_tensor = std_value
         std_tensor = std_tensor.unsqueeze(-1)
 
-    # Appliquer la dénormalisation: x * std + mean
     denormalized = data_tensor * std_tensor + mean_tensor
-    
     return denormalized
 
 
-# Alias pour compatibilité avec le code existant
 sequence_mask = create_sequence_mask
 fix_len_compatibility = adjust_length_for_downsampling
 generate_path = build_alignment_path
