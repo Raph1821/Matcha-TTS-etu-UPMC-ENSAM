@@ -1,7 +1,14 @@
+"""
+Module Transformer pour le décodage
+
+Implémentation des blocs Transformer avec support de différentes fonctions d'activation
+et mécanismes d'attention pour la génération de spectrogrammes mel.
+"""
+
 from typing import Any, Dict, Optional
 
 import torch
-import torch.nn as nn  # pylint: disable=consider-using-from-import
+import torch.nn as nn
 
 try:
     from diffusers.models.attention import (
@@ -17,7 +24,7 @@ try:
     DIFFUSERS_AVAILABLE = True
 except ImportError:
     DIFFUSERS_AVAILABLE = False
-    # Fallback implementations
+    # Implémentations de repli
     class LoRACompatibleLinear(nn.Linear):
         pass
     
@@ -27,17 +34,21 @@ except ImportError:
 
 class SnakeBeta(nn.Module):
     """
-    A modified Snake function which uses separate parameters for the magnitude of the periodic components
-    Shape:
-        - Input: (B, C, T)
-        - Output: (B, C, T), same shape as the input
-    Parameters:
-        - alpha - trainable parameter that controls frequency
-        - beta - trainable parameter that controls magnitude
-    References:
-        - This activation function is a modified version based on this paper by Liu Ziyin, Tilman Hartwig, Masahito Ueda:
+    Fonction Snake modifiée qui utilise des paramètres séparés pour l'amplitude des composantes périodiques
+    
+    Forme:
+        - Entrée: (B, C, T)
+        - Sortie: (B, C, T), même forme que l'entrée
+    
+    Paramètres:
+        - alpha: paramètre entraînable qui contrôle la fréquence
+        - beta: paramètre entraînable qui contrôle l'amplitude
+    
+    Références:
+        - Cette fonction d'activation est une version modifiée basée sur cet article de Liu Ziyin, Tilman Hartwig, Masahito Ueda:
         https://arxiv.org/abs/2006.08195
-    Examples:
+    
+    Exemples:
         >>> a1 = snakebeta(256)
         >>> x = torch.randn(256)
         >>> x = a1(x)
@@ -45,25 +56,25 @@ class SnakeBeta(nn.Module):
 
     def __init__(self, in_features, out_features, alpha=1.0, alpha_trainable=True, alpha_logscale=True):
         """
-        Initialization.
-        INPUT:
-            - in_features: shape of the input
-            - alpha - trainable parameter that controls frequency
-            - beta - trainable parameter that controls magnitude
-            alpha is initialized to 1 by default, higher values = higher-frequency.
-            beta is initialized to 1 by default, higher values = higher-magnitude.
-            alpha will be trained along with the rest of your model.
+        Initialisation.
+        ENTRÉE:
+            - in_features: forme de l'entrée
+            - alpha: paramètre entraînable qui contrôle la fréquence
+            - beta: paramètre entraînable qui contrôle l'amplitude
+            alpha est initialisé à 1 par défaut, valeurs plus élevées = fréquence plus élevée.
+            beta est initialisé à 1 par défaut, valeurs plus élevées = amplitude plus élevée.
+            alpha sera entraîné avec le reste du modèle.
         """
         super().__init__()
         self.in_features = out_features if isinstance(out_features, list) else [out_features]
         self.proj = LoRACompatibleLinear(in_features, out_features)
 
-        # initialize alpha
+        # Initialiser alpha
         self.alpha_logscale = alpha_logscale
-        if self.alpha_logscale:  # log scale alphas initialized to zeros
+        if self.alpha_logscale:  # Échelle logarithmique, initialisée à zéros
             self.alpha = nn.Parameter(torch.zeros(self.in_features) * alpha)
             self.beta = nn.Parameter(torch.zeros(self.in_features) * alpha)
-        else:  # linear scale alphas initialized to ones
+        else:  # Échelle linéaire, initialisée à uns
             self.alpha = nn.Parameter(torch.ones(self.in_features) * alpha)
             self.beta = nn.Parameter(torch.ones(self.in_features) * alpha)
 
@@ -74,8 +85,8 @@ class SnakeBeta(nn.Module):
 
     def forward(self, x):
         """
-        Forward pass of the function.
-        Applies the function to the input elementwise.
+        Passe avant de la fonction.
+        Applique la fonction à l'entrée élément par élément.
         SnakeBeta ∶= x + 1/b * sin^2 (xa)
         """
         x = self.proj(x)
@@ -92,16 +103,16 @@ class SnakeBeta(nn.Module):
 
 
 class FeedForward(nn.Module):
-    r"""
-    A feed-forward layer.
-
-    Parameters:
-        dim (`int`): The number of channels in the input.
-        dim_out (`int`, *optional*): The number of channels in the output. If not given, defaults to `dim`.
-        mult (`int`, *optional*, defaults to 4): The multiplier to use for the hidden dimension.
-        dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
-        activation_fn (`str`, *optional*, defaults to `"geglu"`): Activation function to be used in feed-forward.
-        final_dropout (`bool` *optional*, defaults to False): Apply a final dropout.
+    """
+    Couche feed-forward.
+    
+    Paramètres:
+        dim (`int`): Le nombre de canaux dans l'entrée.
+        dim_out (`int`, *optionnel*): Le nombre de canaux dans la sortie. Si non donné, par défaut à `dim`.
+        mult (`int`, *optionnel*, par défaut 4): Le multiplicateur à utiliser pour la dimension cachée.
+        dropout (`float`, *optionnel*, par défaut 0.0): La probabilité de dropout à utiliser.
+        activation_fn (`str`, *optionnel*, par défaut `"geglu"`): Fonction d'activation à utiliser dans feed-forward.
+        final_dropout (`bool` *optionnel*, par défaut False): Appliquer un dropout final.
     """
 
     def __init__(
@@ -117,15 +128,15 @@ class FeedForward(nn.Module):
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
-        # 初始化 act_fn，确保在所有情况下都有值
+        # Initialiser act_fn, s'assurer qu'il y a toujours une valeur
         act_fn = None
         
         if not DIFFUSERS_AVAILABLE:
-            # Fallback implementations
+            # Implémentations de repli
             if activation_fn == "gelu":
                 act_fn = nn.GELU()
             elif activation_fn == "geglu":
-                # Simple GEGLU approximation
+                # Approximation simple de GEGLU
                 class SimpleGEGLU(nn.Module):
                     def __init__(self, dim_in, dim_out):
                         super().__init__()
@@ -135,10 +146,10 @@ class FeedForward(nn.Module):
                         return x * nn.functional.gelu(gate)
                 act_fn = SimpleGEGLU(dim, inner_dim)
             elif activation_fn == "snakebeta" or activation_fn == "snake":
-                # "snake" 和 "snakebeta" 都使用 SnakeBeta
+                # "snake" et "snakebeta" utilisent tous deux SnakeBeta
                 act_fn = SnakeBeta(dim, inner_dim)
             else:
-                # 默认使用 GELU
+                # Par défaut utiliser GELU
                 act_fn = nn.GELU()
         else:
             if activation_fn == "gelu":
@@ -150,24 +161,24 @@ class FeedForward(nn.Module):
             elif activation_fn == "geglu-approximate":
                 act_fn = ApproximateGELU(dim, inner_dim)
             elif activation_fn == "snakebeta" or activation_fn == "snake":
-                # "snake" 和 "snakebeta" 都使用 SnakeBeta
+                # "snake" et "snakebeta" utilisent tous deux SnakeBeta
                 act_fn = SnakeBeta(dim, inner_dim)
             else:
-                # 默认使用 GELU
+                # Par défaut utiliser GELU
                 act_fn = GELU(dim, inner_dim)
         
-        # 确保 act_fn 已经被赋值
+        # S'assurer que act_fn a été assigné
         if act_fn is None:
-            raise ValueError(f"Unknown activation function: {activation_fn}")
+            raise ValueError(f"Fonction d'activation inconnue: {activation_fn}")
 
         self.net = nn.ModuleList([])
-        # project in
+        # Projection d'entrée
         self.net.append(act_fn)
-        # project dropout
+        # Dropout de projection
         self.net.append(nn.Dropout(dropout))
-        # project out
+        # Projection de sortie
         self.net.append(LoRACompatibleLinear(inner_dim, dim_out))
-        # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
+        # FF comme utilisé dans Vision Transformer, MLP-Mixer, etc. ont un dropout final
         if final_dropout:
             self.net.append(nn.Dropout(dropout))
 
@@ -180,24 +191,24 @@ class FeedForward(nn.Module):
 if DIFFUSERS_AVAILABLE:
     @maybe_allow_in_graph
     class BasicTransformerBlock(nn.Module):
-        r"""
-        A basic Transformer block.
-
-        Parameters:
-            dim (`int`): The number of channels in the input and output.
-            num_attention_heads (`int`): The number of heads to use for multi-head attention.
-            attention_head_dim (`int`): The number of channels in each head.
-            dropout (`float`, *optional*, defaults to 0.0): The dropout probability to use.
-            cross_attention_dim (`int`, *optional*): The size of the encoder_hidden_states vector for cross attention.
-            only_cross_attention (`bool`, *optional*):
-                Whether to use only cross-attention layers. In this case two cross attention layers are used.
-            double_self_attention (`bool`, *optional*):
-                Whether to use two self-attention layers. In this case no cross attention layers are used.
-            activation_fn (`str`, *optional*, defaults to `"geglu"`): Activation function to be used in feed-forward.
+        """
+        Un bloc Transformer de base.
+        
+        Paramètres:
+            dim (`int`): Le nombre de canaux dans l'entrée et la sortie.
+            num_attention_heads (`int`): Le nombre de têtes à utiliser pour l'attention multi-têtes.
+            attention_head_dim (`int`): Le nombre de canaux dans chaque tête.
+            dropout (`float`, *optionnel*, par défaut 0.0): La probabilité de dropout à utiliser.
+            cross_attention_dim (`int`, *optionnel*): La taille du vecteur encoder_hidden_states pour l'attention croisée.
+            only_cross_attention (`bool`, *optionnel*):
+                S'il faut utiliser uniquement des couches d'attention croisée. Dans ce cas, deux couches d'attention croisée sont utilisées.
+            double_self_attention (`bool`, *optionnel*):
+                S'il faut utiliser deux couches d'auto-attention. Dans ce cas, aucune couche d'attention croisée n'est utilisée.
+            activation_fn (`str`, *optionnel*, par défaut `"geglu"`): Fonction d'activation à utiliser dans feed-forward.
             num_embeds_ada_norm (:
-                obj: `int`, *optional*): The number of diffusion steps used during training. See `Transformer2DModel`.
+                obj: `int`, *optionnel*): Le nombre de pas de diffusion utilisés pendant l'entraînement. Voir `Transformer2DModel`.
             attention_bias (:
-                obj: `bool`, *optional*, defaults to `False`): Configure if the attentions should contain a bias parameter.
+                obj: `bool`, *optionnel*, par défaut `False`): Configurer si les attentions doivent contenir un paramètre de biais.
         """
 
         def __init__(
@@ -225,12 +236,12 @@ if DIFFUSERS_AVAILABLE:
 
             if norm_type in ("ada_norm", "ada_norm_zero") and num_embeds_ada_norm is None:
                 raise ValueError(
-                    f"`norm_type` is set to {norm_type}, but `num_embeds_ada_norm` is not defined. Please make sure to"
-                    f" define `num_embeds_ada_norm` if setting `norm_type` to {norm_type}."
+                    f"`norm_type` est défini à {norm_type}, mais `num_embeds_ada_norm` n'est pas défini. Veuillez vous assurer de"
+                    f" définir `num_embeds_ada_norm` si vous définissez `norm_type` à {norm_type}."
                 )
 
-            # Define 3 blocks. Each block has its own normalization layer.
-            # 1. Self-Attn
+            # Définir 3 blocs. Chaque bloc a sa propre couche de normalisation.
+            # 1. Auto-Attention
             if self.use_ada_layer_norm:
                 self.norm1 = AdaLayerNorm(dim, num_embeds_ada_norm)
             elif self.use_ada_layer_norm_zero:
@@ -247,11 +258,11 @@ if DIFFUSERS_AVAILABLE:
                 upcast_attention=upcast_attention,
             )
 
-            # 2. Cross-Attn
+            # 2. Attention croisée
             if cross_attention_dim is not None or double_self_attention:
-                # We currently only use AdaLayerNormZero for self attention where there will only be one attention block.
-                # I.e. the number of returned modulation chunks from AdaLayerZero would not make sense if returned during
-                # the second cross attention block.
+                # Nous n'utilisons actuellement AdaLayerNormZero que pour l'auto-attention où il n'y aura qu'un seul bloc d'attention.
+                # C'est-à-dire que le nombre de morceaux de modulation retournés depuis AdaLayerZero n'aurait pas de sens s'ils étaient retournés pendant
+                # le deuxième bloc d'attention croisée.
                 self.norm2 = (
                     AdaLayerNorm(dim, num_embeds_ada_norm)
                     if self.use_ada_layer_norm
@@ -265,8 +276,7 @@ if DIFFUSERS_AVAILABLE:
                     dropout=dropout,
                     bias=attention_bias,
                     upcast_attention=upcast_attention,
-                    # scale_qk=False, # uncomment this to not to use flash attention
-                )  # is self-attn if encoder_hidden_states is none
+                )  # est auto-attention si encoder_hidden_states est none
             else:
                 self.norm2 = None
                 self.attn2 = None
@@ -275,12 +285,12 @@ if DIFFUSERS_AVAILABLE:
             self.norm3 = nn.LayerNorm(dim, elementwise_affine=norm_elementwise_affine)
             self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn, final_dropout=final_dropout)
 
-            # let chunk size default to None
+            # Laisser la taille de chunk par défaut à None
             self._chunk_size = None
             self._chunk_dim = 0
 
         def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int):
-            # Sets chunk feed-forward
+            """Définit le feed-forward par chunks"""
             self._chunk_size = chunk_size
             self._chunk_dim = dim
 
@@ -294,8 +304,8 @@ if DIFFUSERS_AVAILABLE:
             cross_attention_kwargs: Dict[str, Any] = None,
             class_labels: Optional[torch.LongTensor] = None,
         ):
-            # Notice that normalization is always applied before the real computation in the following blocks.
-            # 1. Self-Attention
+            # Notez que la normalisation est toujours appliquée avant le calcul réel dans les blocs suivants.
+            # 1. Auto-Attention
             if self.use_ada_layer_norm:
                 norm_hidden_states = self.norm1(hidden_states, timestep)
             elif self.use_ada_layer_norm_zero:
@@ -317,7 +327,7 @@ if DIFFUSERS_AVAILABLE:
                 attn_output = gate_msa.unsqueeze(1) * attn_output
             hidden_states = attn_output + hidden_states
 
-            # 2. Cross-Attention
+            # 2. Attention croisée
             if self.attn2 is not None:
                 norm_hidden_states = (
                     self.norm2(hidden_states, timestep) if self.use_ada_layer_norm else self.norm2(hidden_states)
@@ -338,10 +348,10 @@ if DIFFUSERS_AVAILABLE:
                 norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
 
             if self._chunk_size is not None:
-                # "feed_forward_chunk_size" can be used to save memory
+                # "feed_forward_chunk_size" peut être utilisé pour économiser la mémoire
                 if norm_hidden_states.shape[self._chunk_dim] % self._chunk_size != 0:
                     raise ValueError(
-                        f"`hidden_states` dimension to be chunked: {norm_hidden_states.shape[self._chunk_dim]} has to be divisible by chunk size: {self._chunk_size}. Make sure to set an appropriate `chunk_size` when calling `unet.enable_forward_chunking`."
+                        f"Dimension de `hidden_states` à chunker: {norm_hidden_states.shape[self._chunk_dim]} doit être divisible par la taille de chunk: {self._chunk_size}. Assurez-vous de définir une `chunk_size` appropriée lors de l'appel à `unet.enable_forward_chunking`."
                     )
 
                 num_chunks = norm_hidden_states.shape[self._chunk_dim] // self._chunk_size
@@ -359,7 +369,7 @@ if DIFFUSERS_AVAILABLE:
 
             return hidden_states
 else:
-    # Fallback BasicTransformerBlock if diffusers is not available
+    # Bloc BasicTransformerBlock de repli si diffusers n'est pas disponible
     class BasicTransformerBlock(nn.Module):
         def __init__(
             self,
@@ -383,7 +393,7 @@ else:
             timestep: Optional[torch.LongTensor] = None,
             **kwargs
         ):
-            # Self-attention
+            # Auto-attention
             norm_hidden_states = self.norm1(hidden_states)
             attn_output, _ = self.attn1(norm_hidden_states, norm_hidden_states, norm_hidden_states)
             hidden_states = hidden_states + attn_output
