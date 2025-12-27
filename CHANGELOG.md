@@ -362,7 +362,37 @@ L'objectif principal de ces modifications est de **reproduire** (et non copier) 
 
 ---
 
-### 4. `matcha/models/matcha_tts.py`
+### 4. `matcha/models/components/text_encoder.py` (重构版本)
+
+#### 重构改进
+- ✅ 重构代码结构，改进变量命名以提高可读性
+- ✅ 添加辅助方法，改进代码组织方式
+- ✅ 添加法语文档注释
+- ✅ 保持功能兼容性和 API 接口一致性
+
+**主要改进**：
+- 变量命名：`channels` → `feature_dim`/`channel_dim`，`n_heads` → `num_heads`，`p_dropout` → `dropout_rate`
+- 方法重构：`attention` → `_compute_attention`，`_neg_half` → `_apply_neg_half_transform`
+- 代码组织：拆分复杂方法，添加清晰的步骤分解
+- 文档：添加法语文档字符串，保持简洁
+
+---
+
+#### Améliorations de refactorisation
+- ✅ Restructure le code, améliore les noms de variables pour la lisibilité
+- ✅ Ajoute des méthodes auxiliaires, améliore l'organisation du code
+- ✅ Ajoute la documentation en français
+- ✅ Maintient la compatibilité fonctionnelle et la cohérence de l'API
+
+**Améliorations principales** :
+- Noms de variables : `channels` → `feature_dim`/`channel_dim`, `n_heads` → `num_heads`, `p_dropout` → `dropout_rate`
+- Refactorisation des méthodes : `attention` → `_compute_attention`, `_neg_half` → `_apply_neg_half_transform`
+- Organisation du code : divise les méthodes complexes, ajoute une décomposition claire des étapes
+- Documentation : ajoute des chaînes de documentation en français, reste concise
+
+---
+
+### 5. `matcha/models/matcha_tts.py`
 
 #### 原版本的问题
 - ❌ 只有 Flow Matching Loss
