@@ -1,6 +1,6 @@
 """
-Monotonic Alignment Search (MAS) - Cython 优化实现
-复现版本：保持算法逻辑一致，但代码实现有调整
+Monotonic Alignment Search (MAS) - Implémentation optimisée Cython
+Version de reproduction: maintient la logique algorithmique, mais avec des ajustements dans l'implémentation
 """
 import numpy as np
 
@@ -20,23 +20,21 @@ cdef void maximum_path_each(
     float max_neg_val
 ) nogil:
     """
-    为单个样本计算单调对齐路径
+    Calcule le chemin d'alignement monotone pour un seul échantillon
     
     Args:
-        path: 输出路径矩阵 [t_x, t_y]
-        value: 输入值矩阵 [t_x, t_y]（会被修改）
-        t_x: 文本序列长度
-        t_y: 音频序列长度
-        max_neg_val: 最大负值（用于边界处理）
+        path: matrice de chemin de sortie [t_x, t_y]
+        value: matrice de valeurs d'entrée [t_x, t_y] (sera modifiée)
+        t_x: longueur de la séquence de texte
+        t_y: longueur de la séquence audio
+        max_neg_val: valeur négative maximale (pour le traitement des bords)
     """
     cdef int x, y
     cdef float v_prev, v_cur
     cdef int index = t_x - 1
 
-    # 前向传播：计算累积最大值
     for y in range(t_y):
         for x in range(max(0, t_x + y - t_y), min(t_x, y + 1)):
-            # 计算当前值和前一个值
             if x == y:
                 v_cur = max_neg_val
             else:
@@ -50,10 +48,8 @@ cdef void maximum_path_each(
             else:
                 v_prev = value[x - 1, y - 1]
             
-            # 更新累积值
             value[x, y] = max(v_cur, v_prev) + value[x, y]
 
-    # 后向传播：回溯找到最优路径
     for y in range(t_y - 1, -1, -1):
         path[index, y] = 1
         if index != 0 and (index == y or value[index, y - 1] < value[index - 1, y - 1]):
@@ -70,19 +66,17 @@ cpdef void maximum_path_c(
     float max_neg_val=-1e9
 ) nogil:
     """
-    批量计算单调对齐路径（并行处理）
+    Calcule les chemins d'alignement monotones par lots (traitement parallèle)
     
     Args:
-        paths: 输出路径矩阵 [batch, t_x, t_y]
-        values: 输入值矩阵 [batch, t_x, t_y]（会被修改）
-        t_xs: 每个样本的文本长度 [batch]
-        t_ys: 每个样本的音频长度 [batch]
-        max_neg_val: 最大负值（用于边界处理）
+        paths: matrice de chemins de sortie [batch, t_x, t_y]
+        values: matrice de valeurs d'entrée [batch, t_x, t_y] (sera modifiée)
+        t_xs: longueur de texte pour chaque échantillon [batch]
+        t_ys: longueur audio pour chaque échantillon [batch]
+        max_neg_val: valeur négative maximale (pour le traitement des bords)
     """
     cdef int b = values.shape[0]
     cdef int i
     
-    # 并行处理每个样本
     for i in prange(b, nogil=True):
         maximum_path_each(paths[i], values[i], t_xs[i], t_ys[i], max_neg_val)
-
