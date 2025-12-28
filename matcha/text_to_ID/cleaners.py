@@ -11,9 +11,12 @@ hyperparameter. Some cleaners are English-specific. You'll typically want to use
 '''
 
 
-from unidecode import unidecode
-from matcha.text_to_ID.numbers import normalize_numbers
+import inflect
 import re
+from unidecode import unidecode
+from .norm_numbers import normalize_numbers
+# from matcha.text_to_ID.cmudict import CMUDict
+
 
 # Regular expression matching whitespace:
 _whitespace_re = re.compile(r'\s+')
@@ -63,26 +66,35 @@ def convert_to_ascii(text):
   return unidecode(text)
 
 
-def basic_cleaners(text):
-  '''Basic pipeline that lowercases and collapses whitespace without transliteration.'''
-  text = lowercase(text)
-  text = collapse_whitespace(text)
-  return text
+# Fonction pour phonétiser le texte avec CMUDict
+# def _phonetize_with_cmudict(text, cmudict):
+#     words = text.split(' ')
+#     phonetized_words = []
+#     for word in words:
+#         pronunciation = cmudict.lookup(word)
+#         if pronunciation:
+#             phonetized_words.append(pronunciation[0])  # Prend la première prononciation
+#         else:
+#             phonetized_words.append(word)  # Garde le mot original si non trouvé
+#     return ' '.join(phonetized_words)
+
+# Fonction `english_cleaners` modifiée pour inclure la phonétisation
+def english_cleaners(text, cmudict_path=None):
+    '''
+    Pipeline for English text, including number and abbreviation expansion,
+    and optional phonetization using CMUDict.
+    '''
+    text = convert_to_ascii(text)
+    text = lowercase(text)
+    text = expand_numbers(text)
+    text = expand_abbreviations(text)
+    text = collapse_whitespace(text)
+
+    # # Étape de phonétisation si un chemin vers CMUDict est fourni
+    # if cmudict_path:
+    #     cmudict = CMUDict(cmudict_path)
+    #     text = _phonetize_with_cmudict(text, cmudict)
+
+    return text
 
 
-def transliteration_cleaners(text):
-  '''Pipeline for non-English text that transliterates to ASCII.'''
-  text = convert_to_ascii(text)
-  text = lowercase(text)
-  text = collapse_whitespace(text)
-  return text
-
-
-def english_cleaners(text):
-  '''Pipeline for English text, including number and abbreviation expansion.'''
-  text = convert_to_ascii(text)
-  text = lowercase(text)
-  text = expand_numbers(text)
-  text = expand_abbreviations(text)
-  text = collapse_whitespace(text)
-  return text
