@@ -14,7 +14,7 @@ import torch
 
 import matcha.utils.monotonic_align as monotonic_align
 from matcha.models.baselightningmodule import BaseLightningClass
-from matcha.models.components.flow_matching import CFM
+from matcha.models.components.flow_matching import ConditionalFlowMatching
 from matcha.models.components.text_encoder import TextEncoder
 from matcha.utils.model import (
     denormalize,
@@ -106,7 +106,7 @@ class MatchaTTS(BaseLightningClass):
             spk_emb_dim,
         )
 
-        self.decoder = CFM(
+        self.decoder = ConditionalFlowMatching(
             in_channels=2 * encoder.encoder_params.n_feats,
             out_channel=encoder.encoder_params.n_feats,
             cfm_params=cfm,
@@ -180,7 +180,7 @@ class MatchaTTS(BaseLightningClass):
             duration_p_dropout= 0.1
         )
 
-        self.decoder = CFM(
+        self.decoder = ConditionalFlowMatching(
             in_channels=2 * out_channels,
             out_channel=out_channels,
             cfm_params=cfm_params,
