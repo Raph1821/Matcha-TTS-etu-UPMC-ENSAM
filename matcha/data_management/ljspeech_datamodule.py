@@ -22,14 +22,39 @@ class LJSpeechDataModule(pl.LightningDataModule):
         val_txt = self.data_dir / "val.txt"
         
         if not train_txt.exists() or not val_txt.exists():
-            if (self.data_dir / "metadata.csv").exists() or (self.data_dir / "LJSpeech-1.1" / "metadata.csv").exists():
-                process_csv(self.data_dir)
+            metadata_found = False
+            
+            if (self.data_dir / "metadata.csv").exists():
+                metadata_found = True
+            else:
+                for subdir in self.data_dir.iterdir():
+                    if subdir.is_dir() and "ljspeech" in subdir.name.lower():
+                        if (subdir / "metadata.csv").exists():
+                            metadata_found = True
+                            break
+            
+            if metadata_found:
+                print(f"Génération de train.txt et val.txt depuis metadata.csv dans {self.data_dir}...")
+                try:
+                    process_csv(self.data_dir, output_dir=self.data_dir)
+                    if not train_txt.exists() or not val_txt.exists():
+                        raise RuntimeError(
+                            f"Les fichiers train.txt et val.txt n'ont pas été générés dans {self.data_dir}. "
+                            f"Vérifiez les permissions d'écriture."
+                        )
+                    print(f"✓ train.txt et val.txt générés avec succès dans {self.data_dir}")
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Erreur lors de la génération de train.txt/val.txt: {e}\n"
+                        f"Vérifiez que metadata.csv existe et est accessible dans {self.data_dir}"
+                    ) from e
             else:
                 raise FileNotFoundError(
-                    f"Les fichiers train.txt et val.txt n'existent pas dans {self.data_dir}. "
+                    f"Les fichiers train.txt et val.txt n'existent pas dans {self.data_dir}.\n"
+                    f"metadata.csv introuvable dans {self.data_dir} ou ses sous-répertoires.\n"
                     f"Veuillez d'abord télécharger le dataset LJSpeech et exécuter:\n"
                     f"  python -m matcha.utils.data_download.ljspeech {self.data_dir}\n"
-                    f"Ou assurez-vous que metadata.csv existe dans {self.data_dir} ou {self.data_dir}/LJSpeech-1.1/"
+                    f"Ou assurez-vous que metadata.csv existe dans {self.data_dir} ou un sous-répertoire contenant 'ljspeech'"
                 )
         
         self.train_ds = LJSpeechDataset(str(train_txt))
