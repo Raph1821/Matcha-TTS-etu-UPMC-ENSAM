@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import random
 import sys
 import tempfile
@@ -52,28 +53,42 @@ def get_args():
 
 
 def process_csv(ljpath: Path, output_dir: Path = None):
+    print(f"\nprocess_csv() appelé avec:")
+    print(f"  ljpath: {ljpath} (type: {type(ljpath)})")
+    print(f"  output_dir: {output_dir} (type: {type(output_dir)})")
+    
     if not isinstance(ljpath, Path):
         ljpath = Path(ljpath)
+        print(f"  ljpath converti en Path: {ljpath}")
     
     if not ljpath.exists():
+        print(f"  ❌ ERREUR: Le répertoire {ljpath} n'existe pas")
         raise FileNotFoundError(f"Le répertoire {ljpath} n'existe pas.")
     
-    print(f"Recherche de metadata.csv dans {ljpath}...")
+    print(f"  ljpath existe: {ljpath.exists()}")
+    print(f"  ljpath est un répertoire: {ljpath.is_dir()}")
+    
+    print(f"\nRecherche de metadata.csv dans {ljpath}...")
     
     basepath = None
     if (ljpath / "metadata.csv").exists():
         basepath = ljpath
-        print(f"✓ metadata.csv trouvé dans {ljpath}")
+        print(f"  ✓ metadata.csv trouvé directement dans {ljpath}")
     else:
+        print(f"  metadata.csv non trouvé dans {ljpath}, recherche dans les sous-répertoires...")
         if ljpath.is_dir():
             for subdir in ljpath.iterdir():
                 if subdir.is_dir() and "ljspeech" in subdir.name.lower():
+                    print(f"    - Vérification de {subdir}...")
                     if (subdir / "metadata.csv").exists():
                         basepath = subdir
-                        print(f"✓ metadata.csv trouvé dans {subdir}")
+                        print(f"  ✓ metadata.csv trouvé dans {subdir}")
                         break
+                    else:
+                        print(f"      metadata.csv non trouvé dans {subdir}")
     
     if basepath is None:
+        print(f"  ❌ ERREUR: metadata.csv introuvable")
         raise FileNotFoundError(
             f"metadata.csv introuvable dans {ljpath} ou ses sous-répertoires. "
             f"Vérifiez que le dataset LJSpeech est correctement téléchargé."
@@ -82,42 +97,84 @@ def process_csv(ljpath: Path, output_dir: Path = None):
     csvpath = basepath / "metadata.csv"
     wavpath = basepath / "wavs"
     
+    print(f"\nChemins déterminés:")
+    print(f"  basepath: {basepath}")
+    print(f"  csvpath: {csvpath} (existe: {csvpath.exists()})")
+    print(f"  wavpath: {wavpath} (existe: {wavpath.exists()})")
+    
     if output_dir is None:
         output_dir = ljpath
+        print(f"  output_dir non spécifié, utilisation de ljpath: {output_dir}")
     else:
         if not isinstance(output_dir, Path):
             output_dir = Path(output_dir)
+            print(f"  output_dir converti en Path: {output_dir}")
+        print(f"  output_dir: {output_dir}")
+        print(f"  output_dir existe: {output_dir.exists()}")
+        if not output_dir.exists():
+            print(f"  Création du répertoire {output_dir}...")
         output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"  output_dir créé/vérifié: {output_dir.exists()}")
+        print(f"  Permissions: lecture={os.access(output_dir, os.R_OK)}, écriture={os.access(output_dir, os.W_OK)}")
     
-    print(f"Génération de train.txt et val.txt depuis {csvpath}...")
-    print(f"  Fichiers de sortie: {output_dir / 'train.txt'}, {output_dir / 'val.txt'}")
+    train_txt_path = output_dir / "train.txt"
+    val_txt_path = output_dir / "val.txt"
     
-    with (
-        open(csvpath, encoding="utf-8") as csvf,
-        open(output_dir / "train.txt", "w", encoding="utf-8") as tf,
-        open(output_dir / "val.txt", "w", encoding="utf-8") as vf,
-    ):
-        lines = csvf.readlines()
-        total = len(lines)
-        train_count = 0
-        val_count = 0
-        
-        for i, line in enumerate(lines, 1):
-            if i % 1000 == 0 or i == total:
-                print(f"  Traitement: {i}/{total} lignes ({100*i//total}%)", end='\r')
-                sys.stdout.flush()
+    print(f"\nGénération de train.txt et val.txt...")
+    print(f"  Source: {csvpath}")
+    print(f"  Destination train.txt: {train_txt_path}")
+    print(f"  Destination val.txt: {val_txt_path}")
+    
+    try:
+        with (
+            open(csvpath, encoding="utf-8") as csvf,
+            open(train_txt_path, "w", encoding="utf-8") as tf,
+            open(val_txt_path, "w", encoding="utf-8") as vf,
+        ):
+            print(f"  Fichiers ouverts avec succès")
+            lines = csvf.readlines()
+            total = len(lines)
+            print(f"  Total de lignes dans metadata.csv: {total}")
+            train_count = 0
+            val_count = 0
             
-            line = line.strip()
-            parts = line.split("|")
-            wavfile = str(wavpath / f"{parts[0]}.wav")
-            if decision():
-                tf.write(f"{wavfile}|{parts[1]}\n")
-                train_count += 1
-            else:
-                vf.write(f"{wavfile}|{parts[1]}\n")
-                val_count += 1
+            for i, line in enumerate(lines, 1):
+                if i % 1000 == 0 or i == total:
+                    print(f"  Traitement: {i}/{total} lignes ({100*i//total}%)", end='\r')
+                    sys.stdout.flush()
+                
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("|")
+                if len(parts) < 2:
+                    print(f"  ⚠ Ligne {i} ignorée (format invalide): {line[:50]}")
+                    continue
+                wavfile = str(wavpath / f"{parts[0]}.wav")
+                if decision():
+                    tf.write(f"{wavfile}|{parts[1]}\n")
+                    train_count += 1
+                else:
+                    vf.write(f"{wavfile}|{parts[1]}\n")
+                    val_count += 1
+            
+            print(f"\n  Génération terminée: {train_count} échantillons train, {val_count} échantillons val")
         
-        print(f"\n✓ Génération terminée: {train_count} échantillons train, {val_count} échantillons val")
+        print(f"\nVérification des fichiers générés:")
+        print(f"  train.txt: {train_txt_path} (existe: {train_txt_path.exists()})")
+        if train_txt_path.exists():
+            print(f"    Taille: {train_txt_path.stat().st_size} octets")
+        print(f"  val.txt: {val_txt_path} (existe: {val_txt_path.exists()})")
+        if val_txt_path.exists():
+            print(f"    Taille: {val_txt_path.stat().st_size} octets")
+        
+    except Exception as e:
+        print(f"\n  ❌ ERREUR lors de l'écriture des fichiers:")
+        print(f"    Type: {type(e).__name__}")
+        print(f"    Message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def main():
