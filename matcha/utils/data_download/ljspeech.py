@@ -144,9 +144,6 @@ def main():
         print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)")
         _extract_tar(tarfile, outpath)
         print("✓ Extraction terminée")
-        
-        print(f"\n📝 Génération des fichiers train.txt et val.txt...")
-        process_csv(outpath)
     else:
         with tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=True) as zf:
             print(f"\n📥 Téléchargement temporaire de {URL}...")
@@ -157,13 +154,12 @@ def main():
             print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)")
             _extract_tar(zf.name, outpath)
             print("✓ Extraction terminée")
-            
-            print(f"\n📝 Génération des fichiers train.txt et val.txt...")
-            process_csv(outpath)
     
     print("\n" + "=" * 60)
-    print("✓ Préparation du dataset terminée avec succès!")
+    print("✓ Téléchargement et extraction terminés avec succès!")
     print(f"  Données disponibles dans: {outpath}")
+    print(f"  Note: Les fichiers train.txt et val.txt seront générés automatiquement")
+    print(f"        lors de l'utilisation de LJSpeechDataModule.")
     print("=" * 60)
 
 
