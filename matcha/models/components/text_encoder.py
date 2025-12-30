@@ -14,10 +14,6 @@ from einops import rearrange
 from matcha.utils.model import sequence_mask
 
 
-# Version hybride: Utilise PyTorch LayerNorm au lieu de la version personnalisée
-# Mais garde les autres améliorations (prenet résiduel, Conv1d attention, Xavier init)
-
-
 class ConvReluNorm(nn.Module):
     """Bloc de convolution avec ReLU et normalisation, avec connexion résiduelle"""
 
@@ -33,24 +29,18 @@ class ConvReluNorm(nn.Module):
         self.convolutions = torch.nn.ModuleList()
         self.normalizations = torch.nn.ModuleList()
 
-        # Première couche
         padding = kernel_size // 2
         self.convolutions.append(torch.nn.Conv1d(input_channels, hidden_channels, kernel_size, padding=padding))
-        # Version hybride: Utilise PyTorch LayerNorm (plus rapide)
         self.normalizations.append(nn.LayerNorm(hidden_channels))
 
-        # Activation et dropout
         self.activation_dropout = torch.nn.Sequential(torch.nn.ReLU(), torch.nn.Dropout(dropout_rate))
 
-        # Couches supplémentaires
         for _ in range(num_layers - 1):
             self.convolutions.append(
                 torch.nn.Conv1d(hidden_channels, hidden_channels, kernel_size, padding=padding)
             )
-            # Version hybride: Utilise PyTorch LayerNorm
             self.normalizations.append(nn.LayerNorm(hidden_channels))
 
-        # Projection finale avec initialisation à zéro
         self.projection = torch.nn.Conv1d(hidden_channels, output_channels, 1)
         self.projection.weight.data.zero_()
         self.projection.bias.data.zero_()
@@ -59,10 +49,9 @@ class ConvReluNorm(nn.Module):
         residual = x
         for i in range(self.num_layers):
             x = self.convolutions[i](x * x_mask)
-            # Version hybride: PyTorch LayerNorm nécessite [B, T, C], donc transpose
-            x = x.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+            x = x.transpose(1, 2)
             x = self.normalizations[i](x)
-            x = x.transpose(1, 2)  # [B, T, C] -> [B, C, T]
+            x = x.transpose(1, 2)
             x = self.activation_dropout(x)
         x = residual + self.projection(x)
         return x * x_mask
@@ -81,11 +70,9 @@ class DurationPredictor(nn.Module):
         padding = kernel_size // 2
 
         self.conv_layer_1 = torch.nn.Conv1d(input_channels, filter_channels, kernel_size, padding=padding)
-        # Version hybride: Utilise PyTorch LayerNorm
         self.norm_layer_1 = nn.LayerNorm(filter_channels)
 
         self.conv_layer_2 = torch.nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=padding)
-        # Version hybride: Utilise PyTorch LayerNorm
         self.norm_layer_2 = nn.LayerNorm(filter_channels)
 
         self.output_projection = torch.nn.Conv1d(filter_channels, 1, 1)
@@ -93,17 +80,16 @@ class DurationPredictor(nn.Module):
     def forward(self, x, x_mask):
         x = self.conv_layer_1(x * x_mask)
         x = torch.relu(x)
-        # Version hybride: PyTorch LayerNorm nécessite [B, T, C], donc transpose
-        x = x.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+        x = x.transpose(1, 2)
         x = self.norm_layer_1(x)
-        x = x.transpose(1, 2)  # [B, T, C] -> [B, C, T]
+        x = x.transpose(1, 2)
         x = self.dropout(x)
 
         x = self.conv_layer_2(x * x_mask)
         x = torch.relu(x)
-        x = x.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+        x = x.transpose(1, 2)
         x = self.norm_layer_2(x)
-        x = x.transpose(1, 2)  # [B, T, C] -> [B, C, T]
+        x = x.transpose(1, 2)
         x = self.dropout(x)
 
         x = self.output_projection(x * x_mask)
@@ -128,19 +114,14 @@ class RotaryPositionalEmbeddings(nn.Module):
         seq_length = x.shape[0]
         half_dim = self.feature_dim // 2
 
-        # Calcul des fréquences theta
         theta = 1.0 / (self.base_freq ** (torch.arange(0, self.feature_dim, 2).float() / self.feature_dim)).to(x.device)
 
-        # Index de position
         position_indices = torch.arange(seq_length, device=x.device).float().to(x.device)
 
-        # Produit position * theta
         position_theta = torch.einsum("n,d->nd", position_indices, theta)
 
-        # Concaténation pour duplication
         position_theta_duplicated = torch.cat([position_theta, position_theta], dim=1)
 
-        # Cache
         self.cos_cache = position_theta_duplicated.cos()[:, None, None, :]
         self.sin_cache = position_theta_duplicated.sin()[:, None, None, :]
 
@@ -188,20 +169,16 @@ class MultiHeadAttention(nn.Module):
 
         self.head_dim = channels // num_heads
 
-        # Version originale: Utilise Conv1d (comme ancienne version qui fonctionnait)
-        # Conv1d travaille directement avec [B, C, T], pas besoin de transpose
         self.query_conv = torch.nn.Conv1d(channels, channels, 1)
         self.key_conv = torch.nn.Conv1d(channels, channels, 1)
         self.value_conv = torch.nn.Conv1d(channels, channels, 1)
 
-        # Encodage positionnel rotatif
         self.query_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
         self.key_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
 
         self.output_conv = torch.nn.Conv1d(channels, output_channels, 1)
         self.dropout = torch.nn.Dropout(dropout_rate)
 
-        # Initialisation Xavier (gardé de l'ancienne version)
         torch.nn.init.xavier_uniform_(self.query_conv.weight)
         torch.nn.init.xavier_uniform_(self.key_conv.weight)
         if proximal_init:
@@ -210,16 +187,13 @@ class MultiHeadAttention(nn.Module):
         torch.nn.init.xavier_uniform_(self.value_conv.weight)
 
     def forward(self, x, context, attention_mask=None):
-        # Version originale: Conv1d travaille directement avec [B, C, T]
-        # x et context sont déjà en format [B, C, T]
-        query = self.query_conv(x)  # [B, C, T]
-        key = self.key_conv(context)  # [B, C, T]
-        value = self.value_conv(context)  # [B, C, T]
+        query = self.query_conv(x)
+        key = self.key_conv(context)
+        value = self.value_conv(context)
 
         output, self.attention_weights = self._compute_attention(query, key, value, mask=attention_mask)
 
-        # output est déjà [B, C, T], pas besoin de transpose
-        output = self.output_conv(output)  # [B, C, T]
+        output = self.output_conv(output)
         return output
 
     def _compute_attention(self, query, key, value, mask=None):
@@ -364,11 +338,9 @@ class TextEncoder(nn.Module):
         self.feature_dim = encoder_params.n_feats
         self.channel_dim = encoder_params.n_channels
 
-        # Embedding de vocabulaire
         self.embedding = torch.nn.Embedding(n_vocab, self.channel_dim)
         torch.nn.init.normal_(self.embedding.weight, 0.0, self.channel_dim ** -0.5)
 
-        # Pre-net conditionnel
         if encoder_params.prenet:
             self.prenet = ConvReluNorm(
                 self.channel_dim,
@@ -376,12 +348,11 @@ class TextEncoder(nn.Module):
                 self.channel_dim,
                 kernel_size=5,
                 num_layers=3,
-                dropout_rate=0.1,  # Version originale: dropout 0.1
+                dropout_rate=0.1,
             )
         else:
             self.prenet = lambda x, x_mask: x
 
-        # Calcul des canaux d'entrée de l'encodeur (单演讲者，不需要 speaker embedding)
         encoder_input_channels = self.channel_dim
 
         self.encoder = Encoder(
@@ -393,10 +364,8 @@ class TextEncoder(nn.Module):
             encoder_params.p_dropout,
         )
 
-        # Projection vers l'espace acoustique
         self.mean_projection = torch.nn.Conv1d(encoder_input_channels, self.feature_dim, 1)
 
-        # Prédicteur de durée
         self.duration_predictor = DurationPredictor(
             encoder_input_channels,
             duration_predictor_params.filter_channels_dp,
@@ -417,21 +386,16 @@ class TextEncoder(nn.Module):
             log_duration: log durée prédite, shape (batch_size, 1, max_text_length)
             text_mask: masque pour l'entrée, shape (batch_size, 1, max_text_length)
         """
-        # Embedding et masque
         embedded = self.embedding(text_input) * math.sqrt(self.channel_dim)
         embedded = torch.transpose(embedded, 1, -1)
         text_mask = torch.unsqueeze(sequence_mask(text_lengths, embedded.size(2)), 1).to(embedded.dtype)
 
-        # Pre-net
         encoded = self.prenet(embedded, text_mask)
 
-        # Encodage
         encoded = self.encoder(encoded, text_mask)
 
-        # Projection vers l'espace acoustique
         mean_output = self.mean_projection(encoded) * text_mask
 
-        # Prédiction de durée (avec détachement du gradient)
         encoded_detached = torch.detach(encoded)
         log_duration = self.duration_predictor(encoded_detached, text_mask)
 
