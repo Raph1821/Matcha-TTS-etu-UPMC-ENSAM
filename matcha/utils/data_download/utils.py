@@ -20,49 +20,19 @@ def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, ove
     if to_path is None:
         to_path = os.path.dirname(from_path)
 
-    import sys
-    
     with tarfile.open(from_path, "r:*") as tar:
         members = tar.getmembers()
-        total_files = sum(1 for m in members if m.isfile())
-        extracted = 0
-        skipped = 0
-        
-        bar_width = 50
-        empty_bar = '░' * bar_width
-        
-        sys.stdout.write(f"   [{empty_bar}] 0/{total_files} (0%)\r")
-        sys.stdout.flush()
-        
+        files = []
         for file_ in members:
             file_path = os.path.join(to_path, file_.name)
             if file_.isfile():
+                files.append(file_path)
                 if os.path.exists(file_path):
-                    skipped += 1
+                    _LG.info("%s already extracted.", file_path)
                     if not overwrite:
                         continue
-                tar.extract(file_, to_path)
-                extracted += 1
-                
-                if extracted % 5 == 0 or extracted == total_files:
-                    progress = 100 * extracted // total_files if total_files > 0 else 0
-                    filled = bar_width * extracted // total_files if total_files > 0 else 0
-                    bar = '█' * filled + '░' * (bar_width - filled)
-                    status = f"   [{bar}] {extracted}/{total_files} ({progress}%)"
-                    sys.stdout.write(f"\r{status}")
-                    sys.stdout.flush()
-            else:
-                tar.extract(file_, to_path)
-        
-        progress = 100
-        bar = '█' * bar_width
-        sys.stdout.write(f"\r   [{bar}] {extracted}/{total_files} ({progress}%)\n")
-        sys.stdout.flush()
-        
-        if skipped > 0:
-            print(f"   ({skipped} fichiers déjà existants, ignorés)")
-        
-        return [os.path.join(to_path, m.name) for m in members if m.isfile()]
+            tar.extract(file_, to_path)
+        return files
 
 
 def _extract_zip(from_path: Union[str, Path], to_path: Optional[str] = None, overwrite: bool = False) -> List[str]:

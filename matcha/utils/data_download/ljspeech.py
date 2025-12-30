@@ -132,7 +132,7 @@ def main():
         tarname = URL.rsplit("/", maxsplit=1)[-1]
         tarfile = save_dir / tarname
         if not tarfile.exists():
-            print(f"\n📥 Téléchargement de {tarname}...")
+            print(f"\n Téléchargement de {tarname}...")
             print(f"   URL: {URL}")
             print(f"   Destination: {tarfile}")
             download_url_to_file(URL, str(tarfile), progress=True)
@@ -140,25 +140,25 @@ def main():
         else:
             print(f"\n✓ Fichier déjà téléchargé: {tarfile}")
         
-        print(f"\n📦 Extraction de l'archive vers {outpath}...")
+        print(f"\n Extraction de l'archive vers {outpath}...")
         print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)\n")
         _extract_tar(tarfile, outpath)
         print("\n✓ Extraction terminée")
         
-        print(f"\n📝 Génération des fichiers train.txt et val.txt...")
+        print(f"\n Génération des fichiers train.txt et val.txt...")
         process_csv(outpath)
     else:
         with tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=True) as zf:
-            print(f"\n📥 Téléchargement temporaire de {URL}...")
+            print(f"\n Téléchargement temporaire de {URL}...")
             download_url_to_file(URL, zf.name, progress=True)
             print(f"✓ Téléchargement terminé")
             
-            print(f"\n📦 Extraction de l'archive vers {outpath}...")
+            print(f"\n Extraction de l'archive vers {outpath}...")
             print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)\n")
             _extract_tar(zf.name, outpath)
             print("\n✓ Extraction terminée")
             
-            print(f"\n📝 Génération des fichiers train.txt et val.txt...")
+            print(f"\n Génération des fichiers train.txt et val.txt...")
             process_csv(outpath)
     
     print("\n" + "=" * 60)
