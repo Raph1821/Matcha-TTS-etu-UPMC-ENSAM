@@ -76,7 +76,6 @@ def main():
             x_lengths=x_lengths,
             n_timesteps=50,
             temperature=1.0,
-            spks=None,
             length_scale=1.0
         )
         
