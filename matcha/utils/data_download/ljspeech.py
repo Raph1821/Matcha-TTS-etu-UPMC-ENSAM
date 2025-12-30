@@ -52,6 +52,12 @@ def get_args():
 
 
 def process_csv(ljpath: Path, output_dir: Path = None):
+    if not isinstance(ljpath, Path):
+        ljpath = Path(ljpath)
+    
+    if not ljpath.exists():
+        raise FileNotFoundError(f"Le répertoire {ljpath} n'existe pas.")
+    
     print(f"Recherche de metadata.csv dans {ljpath}...")
     
     basepath = None
@@ -59,12 +65,13 @@ def process_csv(ljpath: Path, output_dir: Path = None):
         basepath = ljpath
         print(f"✓ metadata.csv trouvé dans {ljpath}")
     else:
-        for subdir in ljpath.iterdir():
-            if subdir.is_dir() and "ljspeech" in subdir.name.lower():
-                if (subdir / "metadata.csv").exists():
-                    basepath = subdir
-                    print(f"✓ metadata.csv trouvé dans {subdir}")
-                    break
+        if ljpath.is_dir():
+            for subdir in ljpath.iterdir():
+                if subdir.is_dir() and "ljspeech" in subdir.name.lower():
+                    if (subdir / "metadata.csv").exists():
+                        basepath = subdir
+                        print(f"✓ metadata.csv trouvé dans {subdir}")
+                        break
     
     if basepath is None:
         raise FileNotFoundError(
@@ -77,6 +84,10 @@ def process_csv(ljpath: Path, output_dir: Path = None):
     
     if output_dir is None:
         output_dir = ljpath
+    else:
+        if not isinstance(output_dir, Path):
+            output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Génération de train.txt et val.txt depuis {csvpath}...")
     print(f"  Fichiers de sortie: {output_dir / 'train.txt'}, {output_dir / 'val.txt'}")

@@ -18,44 +18,48 @@ class LJSpeechDataModule(pl.LightningDataModule):
         self.persistent_workers = persistent_workers
 
     def setup(self, stage=None):
-        train_txt = self.data_dir / "train.txt"
-        val_txt = self.data_dir / "val.txt"
+        if not self.data_dir.exists():
+            raise FileNotFoundError(
+                f"Le répertoire de données {self.data_dir} n'existe pas.\n"
+                f"Veuillez d'abord télécharger le dataset LJSpeech:\n"
+                f"  python -m matcha.utils.data_download.ljspeech {self.data_dir}"
+            )
+        
+        metadata_path = None
+        if (self.data_dir / "metadata.csv").exists():
+            metadata_path = self.data_dir
+        elif self.data_dir.is_dir():
+            for subdir in self.data_dir.iterdir():
+                if subdir.is_dir() and "ljspeech" in subdir.name.lower():
+                    if (subdir / "metadata.csv").exists():
+                        metadata_path = subdir
+                        break
+        
+        if metadata_path is None:
+            raise FileNotFoundError(
+                f"metadata.csv introuvable dans {self.data_dir} ou ses sous-répertoires.\n"
+                f"Veuillez d'abord télécharger le dataset LJSpeech:\n"
+                f"  python -m matcha.utils.data_download.ljspeech {self.data_dir}"
+            )
+        
+        train_txt = metadata_path / "train.txt"
+        val_txt = metadata_path / "val.txt"
         
         if not train_txt.exists() or not val_txt.exists():
-            metadata_found = False
-            
-            if (self.data_dir / "metadata.csv").exists():
-                metadata_found = True
-            else:
-                for subdir in self.data_dir.iterdir():
-                    if subdir.is_dir() and "ljspeech" in subdir.name.lower():
-                        if (subdir / "metadata.csv").exists():
-                            metadata_found = True
-                            break
-            
-            if metadata_found:
-                print(f"Génération de train.txt et val.txt depuis metadata.csv dans {self.data_dir}...")
-                try:
-                    process_csv(self.data_dir, output_dir=self.data_dir)
-                    if not train_txt.exists() or not val_txt.exists():
-                        raise RuntimeError(
-                            f"Les fichiers train.txt et val.txt n'ont pas été générés dans {self.data_dir}. "
-                            f"Vérifiez les permissions d'écriture."
-                        )
-                    print(f"✓ train.txt et val.txt générés avec succès dans {self.data_dir}")
-                except Exception as e:
+            print(f"Génération de train.txt et val.txt depuis metadata.csv dans {metadata_path}...")
+            try:
+                process_csv(self.data_dir, output_dir=metadata_path)
+                if not train_txt.exists() or not val_txt.exists():
                     raise RuntimeError(
-                        f"Erreur lors de la génération de train.txt/val.txt: {e}\n"
-                        f"Vérifiez que metadata.csv existe et est accessible dans {self.data_dir}"
-                    ) from e
-            else:
-                raise FileNotFoundError(
-                    f"Les fichiers train.txt et val.txt n'existent pas dans {self.data_dir}.\n"
-                    f"metadata.csv introuvable dans {self.data_dir} ou ses sous-répertoires.\n"
-                    f"Veuillez d'abord télécharger le dataset LJSpeech et exécuter:\n"
-                    f"  python -m matcha.utils.data_download.ljspeech {self.data_dir}\n"
-                    f"Ou assurez-vous que metadata.csv existe dans {self.data_dir} ou un sous-répertoire contenant 'ljspeech'"
-                )
+                        f"Les fichiers train.txt et val.txt n'ont pas été générés dans {metadata_path}. "
+                        f"Vérifiez les permissions d'écriture."
+                    )
+                print(f"✓ train.txt et val.txt générés avec succès dans {metadata_path}")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Erreur lors de la génération de train.txt/val.txt: {e}\n"
+                    f"Vérifiez que metadata.csv existe et est accessible dans {self.data_dir}"
+                ) from e
         
         self.train_ds = LJSpeechDataset(str(train_txt))
         self.val_ds = LJSpeechDataset(str(val_txt))

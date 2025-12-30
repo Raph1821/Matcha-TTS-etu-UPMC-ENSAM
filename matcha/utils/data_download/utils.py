@@ -29,8 +29,9 @@ def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, ove
         skipped = 0
         
         bar_width = 50
+        empty_bar = '░' * bar_width
         
-        sys.stdout.write(f"   Extraction: 0/{total_files} fichiers (0%)")
+        sys.stdout.write(f"   [{empty_bar}] 0/{total_files} (0%)\r")
         sys.stdout.flush()
         
         for file_ in members:
@@ -43,8 +44,7 @@ def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, ove
                 tar.extract(file_, to_path)
                 extracted += 1
                 
-                update_interval = max(1, total_files // 100) if total_files > 100 else 10
-                if extracted % update_interval == 0 or extracted == total_files:
+                if extracted % 5 == 0 or extracted == total_files:
                     progress = 100 * extracted // total_files if total_files > 0 else 0
                     filled = bar_width * extracted // total_files if total_files > 0 else 0
                     bar = '█' * filled + '░' * (bar_width - filled)
