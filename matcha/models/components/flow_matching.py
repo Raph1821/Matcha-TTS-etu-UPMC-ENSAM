@@ -27,7 +27,6 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         self.solver = cfm_params.solver if hasattr(cfm_params, 'solver') else 'euler'
         self.sigma_min = cfm_params.sigma_min if hasattr(cfm_params, 'sigma_min') else 1e-4
         
-        # Le decoder(estimator) sera défini dans les classes filles
         self.estimator = None
     
     @torch.inference_mode()
@@ -45,13 +44,10 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         Returns:
             sample: torch.Tensor: Mel-spectrogramme généré, shape (batch_size, n_feats, mel_timesteps)
         """
-        # 1. Commencer avec du bruit gaussien pur
         z = torch.randn_like(mu) * temperature
         
-        # 2. Créer les timesteps de 0 à 1
         t_span = torch.linspace(0, 1, n_timesteps + 1, device=mu.device)
         
-        # 3. Résoudre l'ODE avec la méthode d'Euler
         return self.solve_ode_euler(z, t_span, mu, mask, cond)
     
     def solve_ode_euler(self, x, t_span, mu, mask, cond):
@@ -75,21 +71,14 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         dt = t_span[1] - t_span[0]  # Pas de temps initial
         batch_size = x.shape[0]
         
-        # Intégration d'Euler: x_{t+dt} = x_t + dt * v(x_t, t)
         for step in range(1, len(t_span)):
-            # Prédire le champ de vitesse au temps t
-            # Decoder.forward 期望 t 的形状为 (batch_size,)，所以需要将标量转换为张量
             t_tensor = torch.full((batch_size,), t, device=x.device, dtype=x.dtype)
             dphi_dt = self.estimator(x, mask, mu, t_tensor, cond)
             velocity = dphi_dt
 
-            # Mise à jour d'Euler
             x = x + dt * velocity
-            
-            # Avancer le temps
             t = t + dt
             
-            # Recalculer dt pour le prochain pas (peut varier)
             if step < len(t_span) - 1:
                 dt = t_span[step + 1] - t
         
@@ -117,25 +106,13 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         """
         batch_size = mu.shape[0]
         
-        # 1. Échantillonner un timestep aléatoire pour chaque exemple
         t = torch.rand([batch_size, 1, 1], device=mu.device, dtype=mu.dtype)
-        
-        # 2. Échantillonner du bruit gaussien p(x_0)
         z = torch.randn_like(x1)
-        
-        # 3. Interpoler entre bruit (t=0) et target (t=1)
-        #    phi_t = (1 - (1-sigma_min)*t) * z + t * x1
-        #    Le sigma_min évite d'avoir exactement du bruit pur à t=0
         phi_t = (1 - (1 - self.sigma_min) * t) * z + t * x1
-        
-        # 4. Le champ de vitesse cible (direction optimale)
-        #    u = d(phi_t)/dt = x1 - (1-sigma_min)*z
         u_target = x1 - (1 - self.sigma_min) * z
         
-        # 5. Prédire le champ de vitesse avec le estimator
         u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), cond)
         
-        # 6. Calculer la MSE loss (normalisée par le masque)
         loss = F.mse_loss(u_pred, u_target, reduction="sum")
         loss = loss / (torch.sum(mask) * u_target.shape[1])
         
@@ -158,13 +135,11 @@ class ConditionalFlowMatching(BaseConditionalFlowMatching):
             cfm_params: Objet contenant solver, sigma_min, etc.
             decoder_params (dict): Paramètres pour le Decoder (channels, dropout, etc.)
         """
-        # Initialiser la classe de base avec n_feats et cfm_params
         super().__init__(
             n_feats=in_channels,
             cfm_params=cfm_params
         )
         
-        # Créer le Decoder (estimator) - le réseau qui prédit le champ de vitesse
         self.estimator = Decoder(
             in_channels=in_channels,
             out_channels=out_channel,
@@ -172,5 +147,4 @@ class ConditionalFlowMatching(BaseConditionalFlowMatching):
         )
 
 
-# Alias pour compatibilité avec matcha_tts.py
 CFM = ConditionalFlowMatching
