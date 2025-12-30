@@ -141,9 +141,9 @@ def main():
             print(f"\n✓ Fichier déjà téléchargé: {tarfile}")
         
         print(f"\n📦 Extraction de l'archive vers {outpath}...")
-        print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)")
+        print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)\n")
         _extract_tar(tarfile, outpath)
-        print("✓ Extraction terminée")
+        print("\n✓ Extraction terminée")
     else:
         with tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=True) as zf:
             print(f"\n📥 Téléchargement temporaire de {URL}...")
@@ -151,9 +151,9 @@ def main():
             print(f"✓ Téléchargement terminé")
             
             print(f"\n📦 Extraction de l'archive vers {outpath}...")
-            print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)")
+            print("   (Cela peut prendre plusieurs minutes, veuillez patienter...)\n")
             _extract_tar(zf.name, outpath)
-            print("✓ Extraction terminée")
+            print("\n✓ Extraction terminée")
     
     print("\n" + "=" * 60)
     print("✓ Téléchargement et extraction terminés avec succès!")

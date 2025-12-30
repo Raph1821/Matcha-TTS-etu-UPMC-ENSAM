@@ -30,6 +30,9 @@ def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, ove
         
         bar_width = 50
         
+        sys.stdout.write(f"   Extraction: 0/{total_files} fichiers (0%)")
+        sys.stdout.flush()
+        
         for file_ in members:
             file_path = os.path.join(to_path, file_.name)
             if file_.isfile():
@@ -40,18 +43,21 @@ def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, ove
                 tar.extract(file_, to_path)
                 extracted += 1
                 
-                if extracted % 10 == 0 or extracted == total_files:
+                update_interval = max(1, total_files // 100) if total_files > 100 else 10
+                if extracted % update_interval == 0 or extracted == total_files:
                     progress = 100 * extracted // total_files if total_files > 0 else 0
                     filled = bar_width * extracted // total_files if total_files > 0 else 0
                     bar = '█' * filled + '░' * (bar_width - filled)
-                    print(f"   [{bar}] {extracted}/{total_files} ({progress}%)", end='\r')
+                    status = f"   [{bar}] {extracted}/{total_files} ({progress}%)"
+                    sys.stdout.write(f"\r{status}")
                     sys.stdout.flush()
             else:
                 tar.extract(file_, to_path)
         
         progress = 100
         bar = '█' * bar_width
-        print(f"   [{bar}] {extracted}/{total_files} ({progress}%)")
+        sys.stdout.write(f"\r   [{bar}] {extracted}/{total_files} ({progress}%)\n")
+        sys.stdout.flush()
         
         if skipped > 0:
             print(f"   ({skipped} fichiers déjà existants, ignorés)")
