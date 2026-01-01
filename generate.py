@@ -132,45 +132,44 @@ def main():
     torchaudio.save(save_path, waveform.cpu(), sample_rate=22050)
     print(f"✨ Audio sauvegardé dans : {save_path}")
 
-    # (Optionnel) Afficher le spectrogramme
+    # Optionnel: Afficher le spectrogramme
     plot_data = mel_spectrogram.squeeze().cpu().numpy()
     
-    # 打印调试信息
-    print(f"📊 Mel spectrogram 统计信息:")
+    print(f"Statistiques du spectrogramme mel:")
     print(f"   Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
-    print(f"   Mean: {plot_data.mean():.4f}, Std: {plot_data.std():.4f}")
+    print(f"   Moyenne: {plot_data.mean():.4f}, Écart-type: {plot_data.std():.4f}")
     
-    # 如果值有负数，说明还在log空间，需要exp
+    # Si les valeurs sont négatives, c'est en espace log, il faut exp
     if plot_data.min() < 0:
-        print("   检测到负值，应用exp变换...")
+        print("   Valeurs négatives détectées, application de la transformation exp...")
         plot_data = np.exp(plot_data)
-        print(f"   Exp后 - Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
+        print(f"   Après exp - Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
     
-    # 使用dB scale（分贝刻度）来增强对比度 - 这是论文中常用的方法
-    # dB = 20 * log10(value)，但需要避免log(0)
-    eps = 1e-10  # 避免log(0)
+    # Utiliser l'échelle dB pour améliorer le contraste - couramment utilisé dans les articles
+    # dB = 20 * log10(valeur), éviter log(0)
+    eps = 1e-10
     plot_data_db = 20 * np.log10(plot_data + eps)
     
-    # 设置合理的dB范围（通常-80dB到0dB或更高）
-    db_min = np.percentile(plot_data_db, 1)  # 裁剪极低值
-    db_max = np.percentile(plot_data_db, 99)  # 裁剪极高值
-    # 如果db_max太小，使用实际最大值
+    # Définir une plage dB raisonnable (typiquement -80dB à 0dB ou plus)
+    db_min = np.percentile(plot_data_db, 1)
+    db_max = np.percentile(plot_data_db, 99)
+    # Si db_max est trop petit, utiliser le max réel
     if db_max < -10:
         db_max = plot_data_db.max()
     
-    print(f"   dB范围: {db_min:.2f} dB 到 {db_max:.2f} dB")
+    print(f"   Plage dB: {db_min:.2f} dB à {db_max:.2f} dB")
     
-    # 保存mel spectrogram (使用dB scale)
+    # Sauvegarder le spectrogramme mel (en utilisant l'échelle dB)
     plt.figure(figsize=(12, 6))
     img = plt.imshow(plot_data_db, origin='lower', aspect='auto', cmap='viridis',
                      vmin=db_min, vmax=db_max, interpolation='bilinear')
     plt.title("Mel Spectrogramme Généré")
-    plt.xlabel("Time (Frames)")
-    plt.ylabel("Mel Frequency Bins")
-    cbar = plt.colorbar(img, label='Intensity (dB)')
+    plt.xlabel("Temps (Frames)")
+    plt.ylabel("Bins de Fréquence Mel")
+    cbar = plt.colorbar(img, label='Intensité (dB)')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"), dpi=150, bbox_inches='tight')
-    print("📊 Mel Spectrogramme sauvegardé (使用dB刻度，应该更亮了！).")
+    print("📊 Mel Spectrogramme sauvegardé.")
 
 if __name__ == "__main__":
     main()
