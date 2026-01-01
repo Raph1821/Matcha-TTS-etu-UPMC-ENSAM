@@ -146,28 +146,31 @@ def main():
         plot_data = np.exp(plot_data)
         print(f"   Exp后 - Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
     
-    # 使用更激进的对比度增强策略
-    # 方法1: 使用更小的分位数范围，让更多细节可见
-    vmin = np.percentile(plot_data, 0.1)  # 只裁剪掉0.1%的极低值
-    vmax = np.percentile(plot_data, 99.9)  # 只裁剪掉0.1%的极高值
+    # 使用dB scale（分贝刻度）来增强对比度 - 这是论文中常用的方法
+    # dB = 20 * log10(value)，但需要避免log(0)
+    eps = 1e-10  # 避免log(0)
+    plot_data_db = 20 * np.log10(plot_data + eps)
     
-    # 方法2: 应用平方根变换来增强对比度（比gamma校正更温和）
-    plot_data_clipped = np.clip(plot_data, vmin, vmax)
-    plot_data_normalized = (plot_data_clipped - vmin) / (vmax - vmin)
-    # 使用平方根来增强低值区域的可见性
-    plot_data_enhanced = np.sqrt(plot_data_normalized)
+    # 设置合理的dB范围（通常-80dB到0dB或更高）
+    db_min = np.percentile(plot_data_db, 1)  # 裁剪极低值
+    db_max = np.percentile(plot_data_db, 99)  # 裁剪极高值
+    # 如果db_max太小，使用实际最大值
+    if db_max < -10:
+        db_max = plot_data_db.max()
     
-    # 保存mel spectrogram
+    print(f"   dB范围: {db_min:.2f} dB 到 {db_max:.2f} dB")
+    
+    # 保存mel spectrogram (使用dB scale)
     plt.figure(figsize=(12, 6))
-    img = plt.imshow(plot_data_enhanced, origin='lower', aspect='auto', cmap='viridis',
-                     vmin=0, vmax=1, interpolation='bilinear')
+    img = plt.imshow(plot_data_db, origin='lower', aspect='auto', cmap='viridis',
+                     vmin=db_min, vmax=db_max, interpolation='bilinear')
     plt.title("Mel Spectrogramme Généré")
     plt.xlabel("Time (Frames)")
     plt.ylabel("Mel Frequency Bins")
-    cbar = plt.colorbar(img, label='Intensity (Enhanced)')
+    cbar = plt.colorbar(img, label='Intensity (dB)')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"), dpi=150, bbox_inches='tight')
-    print("📊 Mel Spectrogramme sauvegardé.")
+    print("📊 Mel Spectrogramme sauvegardé (使用dB刻度，应该更亮了！).")
 
 if __name__ == "__main__":
     main()
