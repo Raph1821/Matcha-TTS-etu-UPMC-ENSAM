@@ -133,21 +133,26 @@ def main():
     print(f"✨ Audio sauvegardé dans : {save_path}")
 
     # (Optionnel) Afficher le spectrogramme
-    plt.figure(figsize=(10, 4))
-    # 使用 mel_spectrogram 而不是 spectrogram
-    plot_data = mel_spectrogram.squeeze().cpu().numpy()
-    plt.imshow(plot_data, origin='lower', aspect='auto')
-    plt.title("Spectrogramme Généré")
-    plt.colorbar()
-    plt.savefig(os.path.join(OUTPUT_FOLDER, "spectrogram.png"))
-    print("📊 Spectrogramme sauvegardé.")
+    # 注意：模型输出的是log-mel spectrogram（在log空间），需要exp才能得到线性mel
+    # 这样可视化会更亮，更接近论文中的效果
+    plot_data_log = mel_spectrogram.squeeze().cpu().numpy()
     
-    # 也保存 mel spectrogram
-    plt.figure(figsize=(10, 4))
-    plt.imshow(plot_data, origin='lower', aspect='auto', cmap='viridis')
+    # 转换为线性mel（exp变换），这样可视化会更亮
+    plot_data_linear = np.exp(plot_data_log)
+    
+    # 保存线性mel spectrogram（exp后，更亮，更接近论文效果）
+    plt.figure(figsize=(12, 6))
+    # 调整vmin和vmax以更好地显示线性mel的范围
+    vmin_linear = np.percentile(plot_data_linear, 1)
+    vmax_linear = np.percentile(plot_data_linear, 99)
+    plt.imshow(plot_data_linear, origin='lower', aspect='auto', cmap='viridis',
+               vmin=vmin_linear, vmax=vmax_linear)
     plt.title("Mel Spectrogramme Généré")
-    plt.colorbar()
-    plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"))
+    plt.xlabel("Time (Frames)")
+    plt.ylabel("Mel Frequency Bins")
+    plt.colorbar(label='Intensity')
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"), dpi=150)
     print("📊 Mel Spectrogramme sauvegardé.")
 
 if __name__ == "__main__":
