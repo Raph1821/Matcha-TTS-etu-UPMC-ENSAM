@@ -133,26 +133,40 @@ def main():
     print(f"✨ Audio sauvegardé dans : {save_path}")
 
     # (Optionnel) Afficher le spectrogramme
-    # 注意：模型输出的是log-mel spectrogram（在log空间），需要exp才能得到线性mel
-    # 这样可视化会更亮，更接近论文中的效果
-    plot_data_log = mel_spectrogram.squeeze().cpu().numpy()
+    plot_data = mel_spectrogram.squeeze().cpu().numpy()
     
-    # 转换为线性mel（exp变换），这样可视化会更亮
-    plot_data_linear = np.exp(plot_data_log)
+    # 打印调试信息
+    print(f"📊 Mel spectrogram 统计信息:")
+    print(f"   Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
+    print(f"   Mean: {plot_data.mean():.4f}, Std: {plot_data.std():.4f}")
     
-    # 保存线性mel spectrogram（exp后，更亮，更接近论文效果）
+    # 如果值有负数，说明还在log空间，需要exp
+    if plot_data.min() < 0:
+        print("   检测到负值，应用exp变换...")
+        plot_data = np.exp(plot_data)
+        print(f"   Exp后 - Min: {plot_data.min():.4f}, Max: {plot_data.max():.4f}")
+    
+    # 使用更激进的对比度增强策略
+    # 方法1: 使用更小的分位数范围，让更多细节可见
+    vmin = np.percentile(plot_data, 0.1)  # 只裁剪掉0.1%的极低值
+    vmax = np.percentile(plot_data, 99.9)  # 只裁剪掉0.1%的极高值
+    
+    # 方法2: 应用平方根变换来增强对比度（比gamma校正更温和）
+    plot_data_clipped = np.clip(plot_data, vmin, vmax)
+    plot_data_normalized = (plot_data_clipped - vmin) / (vmax - vmin)
+    # 使用平方根来增强低值区域的可见性
+    plot_data_enhanced = np.sqrt(plot_data_normalized)
+    
+    # 保存mel spectrogram
     plt.figure(figsize=(12, 6))
-    # 调整vmin和vmax以更好地显示线性mel的范围
-    vmin_linear = np.percentile(plot_data_linear, 1)
-    vmax_linear = np.percentile(plot_data_linear, 99)
-    plt.imshow(plot_data_linear, origin='lower', aspect='auto', cmap='viridis',
-               vmin=vmin_linear, vmax=vmax_linear)
+    img = plt.imshow(plot_data_enhanced, origin='lower', aspect='auto', cmap='viridis',
+                     vmin=0, vmax=1, interpolation='bilinear')
     plt.title("Mel Spectrogramme Généré")
     plt.xlabel("Time (Frames)")
     plt.ylabel("Mel Frequency Bins")
-    plt.colorbar(label='Intensity')
+    cbar = plt.colorbar(img, label='Intensity (Enhanced)')
     plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"), dpi=150)
+    plt.savefig(os.path.join(OUTPUT_FOLDER, "mel_spectrogram.png"), dpi=150, bbox_inches='tight')
     print("📊 Mel Spectrogramme sauvegardé.")
 
 if __name__ == "__main__":
