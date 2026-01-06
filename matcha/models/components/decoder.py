@@ -309,10 +309,10 @@ class Decoder(nn.Module):
             
             x = downsample(x * mask_down)
             if isinstance(downsample, Downsample1D):
-                new_mask_size = (mask_down.shape[-1] + 1) // 2
+                new_mask = mask_down[:, :, ::2]
             else:
-                new_mask_size = mask_down.shape[-1]
-            new_mask = mask_down[:, :, :new_mask_size]
+                new_mask = mask_down
+            
             masks.append(new_mask)
 
         masks = masks[:-1]

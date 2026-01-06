@@ -60,22 +60,29 @@ def main(checkpoint_path=None, resume_from_latest=True):
     
     data_module = LJSpeechDataModule(
         data_dir=data_dir, 
-        batch_size=16, 
+        batch_size=32,
         num_workers=4,
         pin_memory=False,
         persistent_workers=False
     )
 
+    # On initialise le data_module pour avoir accès aux données
+    data_module.setup()
+
+    data_statistics = data_module.get_data_statistics()
+
     if ckpt_path is not None:
         print("Chargement du modèle depuis le checkpoint...")
+        # Si on charge un checkpoint, le modèle a déjà ses hyperparamètres (y compris mean/std) sauvegardés
         model = MatchaTTS.load_from_checkpoint(ckpt_path)
-        print(f"   État d'entraînement restauré (epoch, step, etc. seront restaurés automatiquement)")
+        print(f"   État d'entraînement restauré")
     else:
         print("Initialisation d'un nouveau modèle...")
         model = MatchaTTS(
             n_vocab=len(symbols),
             out_channels=80,
-            hidden_channels=192
+            hidden_channels=192,
+            data_statistics=data_statistics # AJOUT ICI
         )
 
     trainer = pl.Trainer(

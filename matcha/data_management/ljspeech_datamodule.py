@@ -108,3 +108,44 @@ class LJSpeechDataModule(pl.LightningDataModule):
             "y": y_padded,
             "y_lengths": y_lengths
         }
+    
+
+    def get_data_statistics(self):
+        """
+        Calcule la moyenne et l'écart-type des spectrogrammes Mel sur le set d'entraînement.
+        """
+        
+        # On s'assure que le dataset est chargé
+        if not hasattr(self, 'train_ds'):
+            self.setup()
+
+        mel_sum = 0.0
+        mel_sq_sum = 0.0
+        total_frames = 0
+        
+        # Pour éviter de charger tout en RAM, on itère sur une version DataLoader simple
+        # ou directement sur le dataset si possible.
+        temp_loader = DataLoader(
+            self.train_ds, batch_size=32, shuffle=False, num_workers=self.num_workers, collate_fn=self.collate
+        )
+
+        for batch in temp_loader:
+            # batch['y'] shape: [B, n_feats, T]
+            mel = batch['y']
+            mask = batch['x_lengths'] # Attention: x_lengths est la longueur texte, il nous faut un masque audio
+            # On réutilise y_lengths qui est dans le collate
+            y_lengths = batch['y_lengths']
+            
+            # On ne prend en compte que les parties non-paddées
+            for i in range(mel.shape[0]):
+                length = y_lengths[i]
+                valid_mel = mel[i, :, :length] # [n_feats, length]
+                
+                mel_sum += valid_mel.sum().item()
+                mel_sq_sum += (valid_mel ** 2).sum().item()
+                total_frames += (length * valid_mel.shape[0]).item() # n_feats * time
+
+        mel_mean = mel_sum / total_frames
+        mel_std = (mel_sq_sum / total_frames - mel_mean ** 2) ** 0.5
+    
+        return {"mel_mean": mel_mean, "mel_std": mel_std}
