@@ -264,6 +264,18 @@ class MatchaTTS(BaseLightningClass):
                 Doit être divisible par 2^{nombre de sous-échantillonnages UNet}. Nécessaire pour augmenter la taille du batch.
             durations: durées précalculées (optionnel)
         """
+        
+        current_mean = self.mel_mean.to(y.device)
+        current_std = self.mel_std.to(y.device)
+
+        if abs(current_std.item() - 1.0) < 0.1:
+            # Valeurs de secours pour sauver l'entraînement
+            current_mean = torch.tensor(-5.5, device=y.device)
+            current_std = torch.tensor(2.2, device=y.device)
+
+        # Normalisation avec les valeurs corrigées
+        y = (y - current_mean) / current_std
+        
         mu_x, logw, x_mask = self.encoder(x, x_lengths)
         y_max_length = y.shape[-1]
 
@@ -323,3 +335,27 @@ class MatchaTTS(BaseLightningClass):
             prior_loss = 0
 
         return dur_loss, prior_loss, diff_loss, attn
+        
+    def training_step(self, batch, batch_idx):
+        # 1. Récupération des données du batch
+        x, x_lengths = batch['x'], batch['x_lengths']
+        y, y_lengths = batch['y'], batch['y_lengths']
+        
+        # 2. Appel du modèle (forward)
+        # Votre forward renvoie 4 valeurs, pas un dictionnaire
+        dur_loss, prior_loss, diff_loss, _ = self(
+            x, x_lengths, y, y_lengths
+        )
+        
+        # 3. Calcul de la loss totale
+        total_loss = dur_loss + prior_loss + diff_loss
+
+        # 4. Logging détaillé (C'est ici que la magie opère !)
+        # On loggue chaque composante séparément pour comprendre le problème
+        self.log("loss/train", total_loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
+        self.log("sub_loss/train_dur_loss", dur_loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
+        self.log("sub_loss/train_prior_loss", prior_loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
+        self.log("sub_loss/train_diff_loss", diff_loss, prog_bar=True, on_step=True, on_epoch=True, logger=True)
+
+        # 5. On renvoie le total pour que PyTorch Lightning fasse la backprop
+        return total_loss
