@@ -14,7 +14,7 @@ import torch
 
 import matcha.utils.monotonic_align as monotonic_align
 from matcha.models.baselightningmodule import BaseLightningClass
-from matcha.models.components.flow_matching import CFM
+from matcha.models.components.flow_matching import ConditionalFlowMatching as CFM
 from matcha.models.components.text_encoder import TextEncoder
 from matcha.utils.model import (
     denormalize,
