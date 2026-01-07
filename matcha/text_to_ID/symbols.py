@@ -1,13 +1,18 @@
-"""
-Définit l'ensemble des symboles (vocabulaire) du modèle.
-"""
-# On importe les phonèmes valides directement depuis votre fichier local
-from matcha.text_to_ID.cmudict import valid_symbols
+'''
+Defines the set of symbols used in text input to the model.
+
+The default is a set of ASCII characters that works well for English or text that has been run
+through Unidecode. For other data, you can modify _characters. See TRAINING_DATA.md for details.
+'''
+from matcha.text_to_ID import cmudict
 
 _pad        = '_'
-_punctuation = '!\'(),.:;? '
-_special = '-'
-_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+_eos        = '~'
+_unk        = '<unk>'  # Symbole pour les mots inconnus (utilisé par fonctions.py)
+_characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\'(),-.:;? '
 
-# La liste finale : PAD + Ponctuation + Lettres + Phonèmes CMU
-symbols = [_pad] + list(_special) + list(_punctuation) + list(_letters) + valid_symbols
+# Prepend "@" to ARPAbet symbols to ensure uniqueness (some are the same as uppercase letters):
+_arpabet = ['@' + s for s in cmudict.valid_symbols]
+
+# Export all symbols:
+symbols = [_pad, _eos, _unk] + list(_characters) + _arpabet
