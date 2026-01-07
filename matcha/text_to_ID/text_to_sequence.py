@@ -1,37 +1,29 @@
-# Imports normaux
 from matcha.text_to_ID.symbols import symbols
-from phonemizer import phonemize
-from phonemizer.backend.espeak.wrapper import EspeakWrapper # <--- Assurez-vous d'avoir cet import
-import os
 
+# Dictionnaire de conversion : Caractère -> Chiffre
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 
 def text_to_sequence(text, cleaner_names):
     """
-    Convertit un texte brut en séquence d'IDs.
-    """
-    # --- PATCH SPECIAL WORKERS ---
-    # On force le chemin ICI, car ce code s'exécute à l'intérieur du worker
-    lib_path = "/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1"
-    if os.path.exists(lib_path):
-        try:
-            EspeakWrapper.set_library(lib_path)
-        except Exception:
-            pass # Déjà configuré, on ignore
-    # -----------------------------
-
-   
-    phones = phonemize(
-        text,
-        language='en-us',
-        backend='espeak',
-        # ...
-    )
+    Version simplifiée pour éviter les erreurs d'installation espeak/phonemizer.
     
-    # ... conversion en IDs ...
+    Args:
+        text (str): Le texte à dire.
+        cleaner_names (list): Liste des noms de cleaners (ignorée ici pour simplifier).
+    """
     sequence = []
-    for symbol in phones:
-        if symbol in _symbol_to_id:
-            sequence.append(_symbol_to_id[symbol])
+    
+    # Nettoyage minimal (minuscules)
+    clean_text = text.lower()
+    
+    # Conversion en IDs
+    for char in clean_text:
+        if char in _symbol_to_id:
+            sequence.append(_symbol_to_id[char])
+        else:
+            # On ignore les caractères inconnus (ex: é, à, emojis) pour éviter le crash
+            # Dans un vrai système, on translittérerait (é -> e)
+            print(f"Attention: caractère ignoré '{char}'")
+            pass
             
     return sequence
