@@ -142,7 +142,7 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         u_target = x1 - (1 - self.sigma_min) * z
         
         # 5. Prédire le champ de vitesse avec le estimator
-        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), spks, cond=None)
+        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), spks)
         
         # 6. Calculer la MSE loss (normalisée par le masque)
         loss = F.mse_loss(u_pred, u_target, reduction="sum")
