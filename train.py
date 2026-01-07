@@ -20,25 +20,25 @@ def find_latest_checkpoint(logs_dir="lightning_logs", checkpoint_path=None):
     """
     if checkpoint_path is not None:
         if os.path.exists(checkpoint_path):
-            print(f"✅ Utilisation du checkpoint spécifié: {checkpoint_path}")
+            print(f"Utilisation du checkpoint spécifié: {checkpoint_path}")
             return checkpoint_path
         else:
-            print(f"⚠️  Le checkpoint spécifié n'existe pas: {checkpoint_path}, démarrage depuis le début")
+            print(f"Le checkpoint spécifié n'existe pas: {checkpoint_path}, démarrage depuis le début")
             return None
     
     if not os.path.exists(logs_dir):
-        print(f"ℹ️  Le répertoire {logs_dir} n'existe pas, démarrage depuis le début")
+        print(f"Le répertoire {logs_dir} n'existe pas, démarrage depuis le début")
         return None
     
     pattern = os.path.join(logs_dir, "**", "*.ckpt")
     files = glob.glob(pattern, recursive=True)
     
     if not files:
-        print(f"ℹ️  Aucun fichier checkpoint trouvé, démarrage depuis le début")
+        print(f"Aucun fichier checkpoint trouvé, démarrage depuis le début")
         return None
     
     latest_file = max(files, key=os.path.getmtime)
-    print(f"✅ Checkpoint le plus récent trouvé: {latest_file}")
+    print(f"Checkpoint le plus récent trouvé: {latest_file}")
     print(f"   Taille du fichier: {os.path.getsize(latest_file) / (1024**2):.2f} MB")
     return latest_file
 
@@ -67,11 +67,11 @@ def main(checkpoint_path=None, resume_from_latest=True):
     )
 
     if ckpt_path is not None:
-        print("📦 Chargement du modèle depuis le checkpoint...")
+        print("Chargement du modèle depuis le checkpoint...")
         model = MatchaTTS.load_from_checkpoint(ckpt_path)
         print(f"   État d'entraînement restauré (epoch, step, etc. seront restaurés automatiquement)")
     else:
-        print("🆕 Initialisation d'un nouveau modèle...")
+        print("Initialisation d'un nouveau modèle...")
         model = MatchaTTS(
             n_vocab=len(symbols),
             out_channels=80,
@@ -102,13 +102,13 @@ def main(checkpoint_path=None, resume_from_latest=True):
     )
 
     if ckpt_path is not None:
-        print("🔄 Reprise de l'entraînement...")
+        print("Reprise de l'entraînement...")
     else:
-        print("🚀 Démarrage de l'entraînement Matcha-TTS depuis le début...")
+        print("Démarrage de l'entraînement Matcha-TTS depuis le début...")
     
     trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_path)
     
-    print("✅ Entraînement terminé !")
+    print("Entraînement terminé !")
 
 if __name__ == "__main__":
     import argparse

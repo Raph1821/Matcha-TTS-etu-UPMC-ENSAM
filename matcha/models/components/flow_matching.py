@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from matcha.models.components.decoder import Decoder
-from matcha.utils.pylogger import get_pylogger
+# from matcha.utils.pylogger import get_pylogger
 
-log = get_pylogger(__name__)
+# log = get_pylogger(__name__)
 
 
 class BaseConditionalFlowMatching(nn.Module, ABC):
@@ -142,7 +142,7 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         u_target = x1 - (1 - self.sigma_min) * z
         
         # 5. Prédire le champ de vitesse avec le estimator
-        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), spks)
+        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), spks, cond)
         
         # 6. Calculer la MSE loss (normalisée par le masque)
         loss = F.mse_loss(u_pred, u_target, reduction="sum")

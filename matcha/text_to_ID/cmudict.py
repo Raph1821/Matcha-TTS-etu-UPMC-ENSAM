@@ -41,23 +41,18 @@ _alt_re = re.compile(r'\([0-9]+\)')
 
 
 def _parse_cmudict(file):
-    cmudict = {}
-    for line in file:
-        line = line.strip()
-        if not line or line.startswith(';;;'):  # Ignore les lignes vides et les commentaires
-            continue
-        parts = line.split('  ')
-        if len(parts) < 2:  # Vérifie qu'il y a bien un mot ET une prononciation
-            continue
-        word = re.sub(_alt_re, '', parts[0])
-        pronunciation = _get_pronunciation('  '.join(parts[1:]))  # Prend tout après le mot comme prononciation
-        if pronunciation:
-            if word in cmudict:
-                cmudict[word].append(pronunciation)
-            else:
-                cmudict[word] = [pronunciation]
-    return cmudict
-
+  cmudict = {}
+  for line in file:
+    if len(line) and (line[0] >= 'A' and line[0] <= 'Z' or line[0] == "'"):
+      parts = line.split('  ')
+      word = re.sub(_alt_re, '', parts[0])
+      pronunciation = _get_pronunciation(parts[1])
+      if pronunciation:
+        if word in cmudict:
+          cmudict[word].append(pronunciation)
+        else:
+          cmudict[word] = [pronunciation]
+  return cmudict
 
 
 def _get_pronunciation(s):
@@ -66,6 +61,3 @@ def _get_pronunciation(s):
     if part not in _valid_symbol_set:
       return None
   return ' '.join(parts)
-
-# cmu_dict = CMUDict('D:/Master_SAR/MLA/PJT/Git/Matcha-TTS-etu-UPMC-ENSAM/matcha/text_to_ID/cmudict-0.7b')
-# print(cmu_dict.lookup('beautiful'))

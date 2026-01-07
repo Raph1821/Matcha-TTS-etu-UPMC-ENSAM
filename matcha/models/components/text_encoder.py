@@ -1,490 +1,402 @@
+"""
+Module d'encodage de texte
+
+Implémentation de l'encodeur de texte basé sur Transformer avec prédiction de durée.
+Version de reproduction: restructurée avec amélioration de la structure et des noms de variables.
+"""
+
 import math
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from einops import rearrange  # Pour les réarrangements de tenseurs
+from einops import rearrange
+
+from matcha.utils.model import sequence_mask
 
 
+class ConvReluNorm(nn.Module):
+    """Bloc de convolution avec ReLU et normalisation, avec connexion résiduelle"""
+
+    def __init__(self, input_channels, hidden_channels, output_channels, kernel_size, num_layers, dropout_rate):
+        super().__init__()
+        self.input_channels = input_channels
+        self.hidden_channels = hidden_channels
+        self.output_channels = output_channels
+        self.kernel_size = kernel_size
+        self.num_layers = num_layers
+        self.dropout_rate = dropout_rate
+
+        self.convolutions = torch.nn.ModuleList()
+        self.normalizations = torch.nn.ModuleList()
+
+        padding = kernel_size // 2
+        self.convolutions.append(torch.nn.Conv1d(input_channels, hidden_channels, kernel_size, padding=padding))
+        self.normalizations.append(nn.LayerNorm(hidden_channels))
+
+        self.activation_dropout = torch.nn.Sequential(torch.nn.ReLU(), torch.nn.Dropout(dropout_rate))
+
+        for _ in range(num_layers - 1):
+            self.convolutions.append(
+                torch.nn.Conv1d(hidden_channels, hidden_channels, kernel_size, padding=padding)
+            )
+            self.normalizations.append(nn.LayerNorm(hidden_channels))
+
+        self.projection = torch.nn.Conv1d(hidden_channels, output_channels, 1)
+        self.projection.weight.data.zero_()
+        self.projection.bias.data.zero_()
+
+    def forward(self, x, x_mask):
+        residual = x
+        for i in range(self.num_layers):
+            x = self.convolutions[i](x * x_mask)
+            x = x.transpose(1, 2)
+            x = self.normalizations[i](x)
+            x = x.transpose(1, 2)
+            x = self.activation_dropout(x)
+        x = residual + self.projection(x)
+        return x * x_mask
 
 
 class DurationPredictor(nn.Module):
-    def __init__(
-        self,
-        input_channels: int,
-        filter_channels: int,
-        kernel_size: int = 3,
-        p_dropout: float = 0.1,
-        padding: str = "same",
-    ):
+    """Prédicteur de durée pour chaque token"""
+
+    def __init__(self, input_channels, filter_channels, kernel_size, dropout_rate):
         super().__init__()
         self.input_channels = input_channels
         self.filter_channels = filter_channels
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
+        self.dropout_rate = dropout_rate
 
-        # Couches
-        self.conv1 = nn.Conv1d(
-            in_channels=input_channels,
-            out_channels=filter_channels,
-            kernel_size=kernel_size,
-            padding=self._get_padding(padding, kernel_size),
-        )
-        self.norm1 = nn.LayerNorm(filter_channels)
-        self.dropout1 = nn.Dropout(p_dropout)
+        self.dropout = torch.nn.Dropout(dropout_rate)
+        padding = kernel_size // 2
 
-        self.conv2 = nn.Conv1d(
-            in_channels=filter_channels,
-            out_channels=filter_channels,
-            kernel_size=kernel_size,
-            padding=self._get_padding(padding, kernel_size),
-        )
-        self.norm2 = nn.LayerNorm(filter_channels)
-        self.dropout2 = nn.Dropout(p_dropout)
+        self.conv_layer_1 = torch.nn.Conv1d(input_channels, filter_channels, kernel_size, padding=padding)
+        self.norm_layer_1 = nn.LayerNorm(filter_channels)
 
-        # Projection finale
-        self.proj = nn.Conv1d(
-            in_channels=filter_channels,
-            out_channels=1,
-            kernel_size=1,
-        )
+        self.conv_layer_2 = torch.nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=padding)
+        self.norm_layer_2 = nn.LayerNorm(filter_channels)
 
-    def _get_padding(self, padding_type: str, kernel_size: int) -> int:
-        if padding_type == "same":
-            return (kernel_size - 1) // 2
-        elif padding_type == "valid":
-            return 0
-        else:
-            raise ValueError("padding doit être 'same' ou 'valid'.")
+        self.output_projection = torch.nn.Conv1d(filter_channels, 1, 1)
 
-    def forward(self, x: torch.Tensor, x_mask: torch.Tensor = None) -> torch.Tensor:
-        if x_mask is not None:
-            # x_mask est de forme [batch, 1, seq_len]
-            # Étend le masque à [batch, hidden_channels, seq_len] pour correspondre à x
-            x_mask_conv = x_mask.expand(-1, self.input_channels, -1)  # [batch, hidden_channels, seq_len]
-            x = x * x_mask_conv  # Masque l'entrée
-
-        # Conv1D_1 + ReLU + LayerNorm + Dropout
-        x = self.conv1(x)
+    def forward(self, x, x_mask):
+        x = self.conv_layer_1(x * x_mask)
         x = torch.relu(x)
-        if x_mask is not None:
-            x = x * x_mask_conv  # Masque après ReLU
+        x = x.transpose(1, 2)
+        x = self.norm_layer_1(x)
+        x = x.transpose(1, 2)
+        x = self.dropout(x)
 
-        x = x.transpose(1, 2)  # [B, T, filter_channels] pour LayerNorm
-        x = self.norm1(x)
-        x = x.transpose(1, 2)  # Retour à [B, filter_channels, T]
-        x = self.dropout1(x)
-
-        # Conv1D_2 + ReLU + LayerNorm + Dropout
-        x = self.conv2(x)
+        x = self.conv_layer_2(x * x_mask)
         x = torch.relu(x)
-        if x_mask is not None:
-            # Met à jour x_mask_conv pour filter_channels
-            x_mask_conv = x_mask.expand(-1, self.filter_channels, -1)
-            x = x * x_mask_conv  # Masque après ReLU
+        x = x.transpose(1, 2)
+        x = self.norm_layer_2(x)
+        x = x.transpose(1, 2)
+        x = self.dropout(x)
 
-        x = x.transpose(1, 2)  # [B, T, filter_channels] pour LayerNorm
-        x = self.norm2(x)
-        x = x.transpose(1, 2)  # Retour à [B, filter_channels, T]
-        x = self.dropout2(x)
-
-        # Projection vers [B, 1, T]
-        x = self.proj(x)
-        if x_mask is not None:
-            x = x * x_mask  # x_mask est déjà de forme [batch, 1, seq_len]
-
-        return x
-
-
-
+        x = self.output_projection(x * x_mask)
+        return x * x_mask
 
 
 class RotaryPositionalEmbeddings(nn.Module):
-    """
-    Implémentation des Rotary Positional Embeddings (RoPE).
-    Applique une rotation aux paires de features pour encoder la position dans une séquence.
-    """
-    def __init__(self, d: int, base: int = 10000):
+    """Encodage positionnel rotatif (RoPE)"""
+
+    def __init__(self, feature_dim, base_freq=10_000):
         super().__init__()
-        self.base = base  # Base pour le calcul des fréquences (θ_i = 1/base^(2i/d))
-        self.d = d        # Dimension des features à rotater (doit être pair)
-        self.cos_cached = None  # Cache pour les valeurs cosinus
-        self.sin_cached = None  # Cache pour les valeurs sinus
+        self.base_freq = base_freq
+        self.feature_dim = int(feature_dim)
+        self.cos_cache = None
+        self.sin_cache = None
 
     def _build_cache(self, x: torch.Tensor):
-        """Calcule et met en cache les valeurs cos/sin pour les positions."""
-        seq_len = x.shape[-2]  # Longueur de la séquence
-        # θ_i = 1 / (base^(2i/d)) pour i = 0, 2, 4, ..., d-2
-        theta = 1.0 / (self.base ** (torch.arange(0, self.d, 2).float() / self.d)).to(x.device)
-        # Indices de position [0, 1, 2, ..., seq_len-1]
-        seq_idx = torch.arange(seq_len, device=x.device).float()
-        # Produit des indices de position par θ_i
-        idx_theta = torch.einsum("i,j->ij", seq_idx, theta)
-        # Concatène pour obtenir [θ₀, θ₁, ..., θ₀, θ₁, ...]
-        idx_theta2 = torch.cat([idx_theta, idx_theta], dim=1)
-        # Met en cache cos et sin (forme: 1 x 1 x seq_len x d)
-        self.cos_cached = idx_theta2.cos()[None, None, :, :]
-        self.sin_cached = idx_theta2.sin()[None, None, :, :]
+        """Construit le cache des valeurs cos et sin"""
+        if self.cos_cache is not None and x.shape[0] <= self.cos_cache.shape[0]:
+            return
 
-    def _neg_half(self, x: torch.Tensor):
-        """Sépare et négative la deuxième moitié des features pour la rotation."""
-        d_2 = self.d // 2
-        return torch.cat([-x[..., d_2:], x[..., :d_2]], dim=-1)
+        seq_length = x.shape[0]
+        half_dim = self.feature_dim // 2
+
+        theta = 1.0 / (self.base_freq ** (torch.arange(0, self.feature_dim, 2).float() / self.feature_dim)).to(x.device)
+
+        position_indices = torch.arange(seq_length, device=x.device).float().to(x.device)
+
+        position_theta = torch.einsum("n,d->nd", position_indices, theta)
+
+        position_theta_duplicated = torch.cat([position_theta, position_theta], dim=1)
+
+        self.cos_cache = position_theta_duplicated.cos()[:, None, None, :]
+        self.sin_cache = position_theta_duplicated.sin()[:, None, None, :]
+
+    def _apply_neg_half_transform(self, x: torch.Tensor):
+        """Applique la transformation [-x[d/2:], x[:d/2]]"""
+        half_dim = self.feature_dim // 2
+        return torch.cat([-x[:, :, :, half_dim:], x[:, :, :, :half_dim]], dim=-1)
 
     def forward(self, x: torch.Tensor):
-        """
-        Applique RoPE à x.
-        Args:
-            x: Tenseur d'entrée de forme [batch, heads, seq_len, d] où d est pair.
-        Returns:
-            Tenseur avec RoPE appliqué, même forme que x.
-        """
-        seq_len = x.shape[-2]
-        self._build_cache(x)  # Met à jour le cache si nécessaire
+        """Applique l'encodage positionnel rotatif"""
+        x = rearrange(x, "b h t d -> t b h d")
+        self._build_cache(x)
 
-        # Sépare les features en deux parties:
-        # - x_rope: les d premières dimensions (seront rotées)
-        # - x_pass: les dimensions restantes (ne seront pas modifiées)
-        x_rope, x_pass = x[..., :self.d], x[..., self.d:]
+        x_rope, x_pass = x[..., : self.feature_dim], x[..., self.feature_dim:]
+        neg_half_x = self._apply_neg_half_transform(x_rope)
 
-        # Applique la rotation: x_rope * cos + neg_half(x_rope) * sin
-        neg_half_x = self._neg_half(x_rope)
-        x_rope = (x_rope * self.cos_cached[:, :, :seq_len]) + (neg_half_x * self.sin_cached[:, :, :seq_len])
+        x_rope = (x_rope * self.cos_cache[: x.shape[0]]) + (neg_half_x * self.sin_cache[: x.shape[0]])
 
-        # Recombine les features rotées et non rotées
-        return torch.cat((x_rope, x_pass), dim=-1)
+        return rearrange(torch.cat((x_rope, x_pass), dim=-1), "t b h d -> b h t d")
 
 
-class MultiHeadAttentionWithRoPE(nn.Module):
+class MultiHeadAttention(nn.Module):
+    """Attention multi-têtes avec encodage positionnel rotatif"""
+
     def __init__(
-        self,
-        embed_dim: int,
-        num_heads: int,
-        dropout: float = 0.0,
-        rotary_dim: int = None,
-        base: int = 10000,
+            self,
+            channels,
+            output_channels,
+            num_heads,
+            heads_share=True,
+            dropout_rate=0.0,
+            proximal_bias=False,
+            proximal_init=False,
     ):
-        """
-        Args:
-            embed_dim: Dimension totale des embeddings.
-            num_heads: Nombre de têtes d'attention.
-            dropout: Taux de dropout.
-            rotary_dim: Dimension des features à rotater avec RoPE (doit être pair).
-                        Si None, utilise embed_dim // num_heads.
-            base: Base pour le calcul des fréquences de RoPE.
-        """
         super().__init__()
-        self.embed_dim = embed_dim
+        assert channels % num_heads == 0
+
+        self.channels = channels
+        self.output_channels = output_channels
         self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-        self.rotary_dim = rotary_dim if rotary_dim is not None else self.head_dim
-        assert self.rotary_dim % 2 == 0, "rotary_dim doit être pair pour RoPE."
+        self.heads_share = heads_share
+        self.proximal_bias = proximal_bias
+        self.dropout_rate = dropout_rate
+        self.attention_weights = None
 
-        # Couches de projection Q, K, V
-        self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.head_dim = channels // num_heads
 
-        # Dropout
-        self.dropout = nn.Dropout(dropout)
+        self.query_conv = torch.nn.Conv1d(channels, channels, 1)
+        self.key_conv = torch.nn.Conv1d(channels, channels, 1)
+        self.value_conv = torch.nn.Conv1d(channels, channels, 1)
 
-        # RoPE pour queries et keys
-        self.query_rotary_pe = RotaryPositionalEmbeddings(d=self.rotary_dim, base=base)
-        self.key_rotary_pe = RotaryPositionalEmbeddings(d=self.rotary_dim, base=base)
+        self.query_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
+        self.key_rope = RotaryPositionalEmbeddings(self.head_dim * 0.5)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        attn_mask: torch.Tensor = None,
-        need_weights: bool = False,
-    ):
-        """
-        Args:
-            x: Tenseur d'entrée de forme [batch, seq_len, embed_dim].
-            attn_mask: Masque d'attention de forme [batch, seq_len] ou [batch, 1, seq_len].
-            need_weights: Si True, retourne aussi les poids d'attention.
-        Returns:
-            Tenseur de sortie de forme [batch, seq_len, embed_dim].
-            Optionnellement, les poids d'attention si need_weights=True.
-        """
-        batch_size, seq_len, _ = x.shape
+        self.output_conv = torch.nn.Conv1d(channels, output_channels, 1)
+        self.dropout = torch.nn.Dropout(dropout_rate)
 
-        # Projection Q, K, V
-        q = self.q_proj(x)  # [batch, seq_len, embed_dim]
-        k = self.k_proj(x)  # [batch, seq_len, embed_dim]
-        v = self.v_proj(x)  # [batch, seq_len, embed_dim]
+        torch.nn.init.xavier_uniform_(self.query_conv.weight)
+        torch.nn.init.xavier_uniform_(self.key_conv.weight)
+        if proximal_init:
+            self.key_conv.weight.data.copy_(self.query_conv.weight.data)
+            self.key_conv.bias.data.copy_(self.query_conv.bias.data)
+        torch.nn.init.xavier_uniform_(self.value_conv.weight)
 
-        # Reshape pour les têtes: [batch, seq_len, embed_dim] -> [batch, seq_len, num_heads, head_dim]
-        q = q.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)  # [batch, num_heads, seq_len, head_dim]
-        k = k.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+    def forward(self, x, context, attention_mask=None):
+        query = self.query_conv(x)
+        key = self.key_conv(context)
+        value = self.value_conv(context)
 
-        # Applique RoPE aux queries et keys
-        q = self.query_rotary_pe(q)
-        k = self.key_rotary_pe(k)
+        output, self.attention_weights = self._compute_attention(query, key, value, mask=attention_mask)
 
-        # Calcul des scores d'attention
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)  # [batch, num_heads, seq_len, seq_len]
+        output = self.output_conv(output)
+        return output
 
-        # Applique le masque (si fourni)
-        if attn_mask is not None:
-            if attn_mask.dim() == 2:
-                attn_mask = attn_mask.unsqueeze(1).unsqueeze(2)  # [batch, 1, 1, seq_len] ou [batch, 1, seq_len, seq_len]
-            attn_scores = attn_scores.masked_fill(attn_mask == 0, -1e9)
+    def _compute_attention(self, query, key, value, mask=None):
+        """Calcule l'attention multi-têtes"""
+        batch_size, channels, key_len, query_len = (*key.size(), query.size(2))
 
-        # Softmax + dropout
-        attn_weights = F.softmax(attn_scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
+        query = rearrange(query, "b (h c) t-> b h t c", h=self.num_heads)
+        key = rearrange(key, "b (h c) t-> b h t c", h=self.num_heads)
+        value = rearrange(value, "b (h c) t-> b h t c", h=self.num_heads)
 
-        # Pondération des values
-        output = torch.matmul(attn_weights, v)  # [batch, num_heads, seq_len, head_dim]
+        query = self.query_rope(query)
+        key = self.key_rope(key)
 
-        # Reshape pour la sortie
-        output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.embed_dim)
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(self.head_dim)
 
-        # Projection de sortie
-        output = self.out_proj(output)
+        if self.proximal_bias:
+            assert key_len == query_len, "Le biais proximal n'est disponible que pour l'auto-attention."
+            scores = scores + self._get_proximal_bias(key_len).to(device=scores.device, dtype=scores.dtype)
 
-        if need_weights:
-            return output, attn_weights
-        else:
-            return output
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e4)
+
+        attention_probs = torch.nn.functional.softmax(scores, dim=-1)
+        attention_probs = self.dropout(attention_probs)
+        output = torch.matmul(attention_probs, value)
+        output = output.transpose(2, 3).contiguous().view(batch_size, channels, query_len)
+        return output, attention_probs
+
+    @staticmethod
+    def _get_proximal_bias(length):
+        """Calcule le biais proximal pour l'auto-attention"""
+        positions = torch.arange(length, dtype=torch.float32)
+        position_diff = torch.unsqueeze(positions, 0) - torch.unsqueeze(positions, 1)
+        return torch.unsqueeze(torch.unsqueeze(-torch.log1p(torch.abs(position_diff)), 0), 0)
 
 
-class EncoderBlock(nn.Module):
+# Version hybride: Utilise Sequential FFN (comme nouvelle version) au lieu de classe indépendante
+# Mais garde le masquage explicite
+class FFN(nn.Module):
+    """Réseau feed-forward avec convolutions - Version hybride (Sequential mais avec masquage)"""
+
+    def __init__(self, input_channels, output_channels, filter_channels, kernel_size, dropout_rate=0.0):
+        super().__init__()
+        padding = kernel_size // 2
+        # Version hybride: Utilise Sequential (plus simple, comme nouvelle version)
+        self.conv_net = nn.Sequential(
+            nn.Conv1d(input_channels, filter_channels, kernel_size, padding=padding),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Conv1d(filter_channels, output_channels, kernel_size, padding=padding),
+            nn.Dropout(dropout_rate)
+        )
+
+    def forward(self, x, x_mask):
+        # Version hybride: Garde le masquage explicite (comme ancienne version)
+        x = self.conv_net(x * x_mask)
+        return x * x_mask
+
+
+class Encoder(nn.Module):
+    """Encodeur Transformer avec attention multi-têtes et FFN"""
+
     def __init__(
-        self,
-        hidden_channels: int,
-        filter_channels: int,
-        n_heads: int,
-        kernel_size: int,
-        p_dropout: float,
-        rotary_dim: int = None,
-        base: int = 10000,
+            self,
+            hidden_channels,
+            filter_channels,
+            num_heads,
+            num_layers,
+            kernel_size=1,
+            dropout_rate=0.0,
+            **kwargs,
     ):
         super().__init__()
         self.hidden_channels = hidden_channels
         self.filter_channels = filter_channels
-        self.n_heads = n_heads
+        self.num_heads = num_heads
+        self.num_layers = num_layers
         self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
+        self.dropout_rate = dropout_rate
 
-        # Remplace nn.MultiheadAttention par MultiHeadAttentionWithRoPE
-        self.attn = MultiHeadAttentionWithRoPE(
-            embed_dim=hidden_channels,
-            num_heads=n_heads,
-            dropout=p_dropout,
-            rotary_dim=rotary_dim,
-            base=base,
-        )
+        self.dropout = torch.nn.Dropout(dropout_rate)
+        self.attention_layers = torch.nn.ModuleList()
+        self.norm_layers_1 = torch.nn.ModuleList()
+        self.ffn_layers = torch.nn.ModuleList()
+        self.norm_layers_2 = torch.nn.ModuleList()
 
-        # Réseau convolutif 
-        self.conv_net = nn.Sequential(
-            nn.Conv1d(hidden_channels, filter_channels, kernel_size, padding=(kernel_size-1)//2),
-            nn.ReLU(),
-            nn.Dropout(p_dropout),
-            nn.Conv1d(filter_channels, hidden_channels, kernel_size, padding=(kernel_size-1)//2),
-            nn.Dropout(p_dropout)
-        )
+        for _ in range(self.num_layers):
+            self.attention_layers.append(
+                MultiHeadAttention(hidden_channels, hidden_channels, num_heads, dropout_rate=dropout_rate)
+            )
+            # Version hybride: Utilise PyTorch LayerNorm (plus rapide)
+            self.norm_layers_1.append(nn.LayerNorm(hidden_channels))
+            self.ffn_layers.append(
+                FFN(
+                    hidden_channels,
+                    hidden_channels,
+                    filter_channels,
+                    kernel_size,
+                    dropout_rate=dropout_rate,
+                )
+            )
+            # Version hybride: Utilise PyTorch LayerNorm
+            self.norm_layers_2.append(nn.LayerNorm(hidden_channels))
 
-        # Normalisation 
-        self.norm1 = nn.LayerNorm(hidden_channels)
-        self.norm2 = nn.LayerNorm(hidden_channels)
+    def forward(self, x, x_mask):
+        attention_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
 
-    def forward(self, x, mask=None):
-        """
-        Args:
-            x: Tenseur d'entrée de forme [batch, hidden_channels, seq_len].
-            mask: Masque pour ignorer le padding. Forme [batch, seq_len].
-        Returns:
-            Tenseur de sortie de forme [batch, hidden_channels, seq_len].
-        """
-        x_residual = x  # [batch, hidden_channels, seq_len]
+        for i in range(self.num_layers):
+            x = x * x_mask
+            attn_output = self.attention_layers[i](x, x, attention_mask)
+            attn_output = self.dropout(attn_output)
+            # Version hybride: PyTorch LayerNorm nécessite [B, T, C], donc transpose
+            x = x.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+            attn_output = attn_output.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+            x = self.norm_layers_1[i](x + attn_output)
+            x = x.transpose(1, 2)  # [B, T, C] -> [B, C, T]
 
-        # --- Attention multi-têtes avec RoPE ---
-        # Transpose pour [batch, seq_len, hidden_channels] (format attendu par MultiHeadAttentionWithRoPE)
-        x_transpose = x.transpose(1, 2)
+            ffn_output = self.ffn_layers[i](x, x_mask)
+            ffn_output = self.dropout(ffn_output)
+            x = x.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+            ffn_output = ffn_output.transpose(1, 2)  # [B, C, T] -> [B, T, C]
+            x = self.norm_layers_2[i](x + ffn_output)
+            x = x.transpose(1, 2)  # [B, T, C] -> [B, C, T]
 
-        # Applique l'attention avec RoPE
-        attn_out = self.attn(x_transpose, attn_mask=mask)
-
-        # Connection résiduelle + normalisation
-        x = self.norm1(x_transpose + attn_out)
-        x = x.transpose(1, 2)  # Retour à [batch, hidden_channels, seq_len]
-
-        # --- Réseau convolutif ---
-        conv_out = self.conv_net(x)
-        x = x + conv_out  # Connection résiduelle
-
-        # Normalisation
-        x = x.transpose(1, 2)  # [batch, seq_len, hidden_channels]
-        x = self.norm2(x)
-        x = x.transpose(1, 2)  # Retour à [batch, hidden_channels, seq_len]
-
+        x = x * x_mask
         return x
 
 
-
 class TextEncoder(nn.Module):
-    """
-    Encodeur de texte pour la TTS avec RoPE.
-    """
+    """Encodeur de texte avec prédiction de durée"""
+
     def __init__(
-        self,
-        n_vocab,          # Taille du vocabulaire (ex: 148 pour LJSpeech)
-        out_channels,     # Dimension de sortie (ex: 80 pour Mel-spectrogramme)
-        hidden_channels,  # Dimension interne (ex: 256)
-        filter_channels,  # Dimension intermédiaire pour les convolutions (ex: 512)
-        n_heads,          # Nombre de têtes d'attention (ex: 4)
-        n_layers,         # Nombre de blocs EncoderBlock (ex: 6)
-        kernel_size,      # Taille du noyau des convolutions (ex: 5)
-        p_dropout,         # Taux de dropout (ex: 0.1)
-        # Ajoute les paramètres pour DurationPredictor
-        duration_filter_channels: int = 256,
-        duration_kernel_size: int = 3,
-        duration_p_dropout: float = 0.1
+            self,
+            encoder_type,
+            encoder_params,
+            duration_predictor_params,
+            n_vocab,
     ):
         super().__init__()
-        self.n_vocab = n_vocab
-        self.out_channels = out_channels
+        self.encoder_type = encoder_type
+        self.vocab_size = n_vocab
+        self.feature_dim = encoder_params.n_feats
+        self.channel_dim = encoder_params.n_channels
 
-        # Couche d'embedding pour le texte
-        self.emb = nn.Embedding(n_vocab, hidden_channels)
-        nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
+        self.embedding = torch.nn.Embedding(n_vocab, self.channel_dim)
+        torch.nn.init.normal_(self.embedding.weight, 0.0, self.channel_dim ** -0.5)
 
-        # Pile de blocs encodeurs avec RoPE
-        self.encoder_stack = nn.ModuleList([
-            EncoderBlock(hidden_channels, filter_channels, n_heads, kernel_size, p_dropout)
-            for _ in range(n_layers)
-        ])
+        if encoder_params.prenet:
+            self.prenet = ConvReluNorm(
+                self.channel_dim,
+                self.channel_dim,
+                self.channel_dim,
+                kernel_size=5,
+                num_layers=3,
+                dropout_rate=0.1,
+            )
+        else:
+            self.prenet = lambda x, x_mask: x
 
-        # Projection finale vers la dimension acoustique
-        self.proj = nn.Conv1d(hidden_channels, out_channels, 1)
+        encoder_input_channels = self.channel_dim
 
-        # Ajoute le DurationPredictor
-        self.duration_predictor = DurationPredictor(
-            input_channels=hidden_channels,  # Prend les embeddings du texte
-            filter_channels=duration_filter_channels,
-            kernel_size=duration_kernel_size,
-            p_dropout=duration_p_dropout,
+        self.encoder = Encoder(
+            encoder_input_channels,
+            encoder_params.filter_channels,
+            encoder_params.n_heads,
+            encoder_params.n_layers,
+            encoder_params.kernel_size,
+            encoder_params.p_dropout,
         )
-        
 
-    def forward(self, x, x_lengths):
-        # Masque pour ignorer le padding
-        max_len = x.size(1)
-        # Crée un masque de forme [batch, seq_len]
-        mask = torch.arange(max_len, device=x.device)[None, :] >= x_lengths[:, None]
-        # Ajoute une dimension pour obtenir [batch, 1, seq_len]
-        mask = mask.unsqueeze(1)  # [batch, 1, seq_len]
+        self.mean_projection = torch.nn.Conv1d(encoder_input_channels, self.feature_dim, 1)
 
-        # Embedding des IDs de texte + scaling
-        x = self.emb(x) * math.sqrt(self.emb.embedding_dim)
+        self.duration_predictor = DurationPredictor(
+            encoder_input_channels,
+            duration_predictor_params.filter_channels_dp,
+            duration_predictor_params.kernel_size,
+            duration_predictor_params.p_dropout,
+        )
 
-        # Transpose pour [batch, hidden_channels, max_text_len]
-        x = x.transpose(1, 2)
+    def forward(self, text_input, text_lengths):
+        """
+        Passe avant de l'encodeur de texte
 
-        # Passe à travers chaque bloc encodeur
-        for block in self.encoder_stack:
-            x = block(x, mask=mask.squeeze(1))  # mask de forme [batch, seq_len] pour EncoderBlock
+        Args:
+            text_input: entrée de texte, shape (batch_size, max_text_length)
+            text_lengths: longueurs des séquences, shape (batch_size,)
 
-        # Projection vers la sortie acoustique
-        mu = self.proj(x)
+        Returns:
+            mean_output: sortie moyenne de l'encodeur, shape (batch_size, n_feats, max_text_length)
+            log_duration: log durée prédite, shape (batch_size, 1, max_text_length)
+            text_mask: masque pour l'entrée, shape (batch_size, 1, max_text_length)
+        """
+        embedded = self.embedding(text_input) * math.sqrt(self.channel_dim)
+        embedded = torch.transpose(embedded, 1, -1)
+        text_mask = torch.unsqueeze(sequence_mask(text_lengths, embedded.size(2)), 1).to(embedded.dtype)
 
-        # Prédit les durées à partir des embeddings finaux
-        log_durations = self.duration_predictor(x, x_mask=mask)  # mask est [batch, 1, seq_len]
+        encoded = self.prenet(embedded, text_mask)
 
-        return mu, log_durations, mask
+        encoded = self.encoder(encoded, text_mask)
 
-    
+        mean_output = self.mean_projection(encoded) * text_mask
 
+        encoded_detached = torch.detach(encoded)
+        log_duration = self.duration_predictor(encoded_detached, text_mask)
 
-
-'''
-TEST CODE 
-'''
-
-if __name__ == "__main__":
-
-#MULTIHEADATTENTION
-
-
-    # Hyperparamètres
-    embed_dim = 256
-    num_heads = 4
-    rotary_dim = 64  # Doit être <= head_dim (ici, head_dim = 256/4 = 64)
-    batch_size = 2
-    seq_len = 10
-
-    # Initialisation
-    attention = MultiHeadAttentionWithRoPE(embed_dim, num_heads, rotary_dim=rotary_dim)
-
-    # Entrée factice
-    x = torch.randn(batch_size, seq_len, embed_dim)
-
-    # Forward pass
-    output = attention(x)
-    print("Forme de la sortie:", output.shape)  # torch.Size([2, 10, 256])
-
-
-
-
-
-
-#PREDICTION DE DUREE
-
-
-    # Hyperparamètres
-    input_channels = 256
-    filter_channels = 256
-    kernel_size = 3
-    p_dropout = 0.1
-    batch_size = 2
-    seq_len = 10
-
-    # Initialisation
-    duration_predictor = DurationPredictor(
-        input_channels, filter_channels, kernel_size, p_dropout
-    )
-
-    # Entrée factice : [B, input_channels, T]
-    x = torch.randn(batch_size, input_channels, seq_len)
-    x_mask = torch.ones(batch_size, 1, seq_len).bool()  # 1 = valide, 0 = padding
-    x_mask[:, :, 5:] = 0  # Simule du padding à partir de l'indice 5
-
-    # Forward pass
-    durations = duration_predictor(x, x_mask=x_mask)
-    print("Forme des durées prédites:", durations.shape)  # torch.Size([2, 1, 10])
-    print("Durées prédites (premier exemple):", durations[0, 0, :])
-
-
-#TEXT ENCODER
-
-    # Hyperparamètres
-    n_vocab = 148
-    out_channels = 80
-    hidden_channels = 256
-    filter_channels = 512
-    n_heads = 4
-    n_layers = 6
-    kernel_size = 5
-    p_dropout = 0.1
-
-    # Initialisation
-    text_encoder = TextEncoder(
-        n_vocab, out_channels, hidden_channels, filter_channels,
-        n_heads, n_layers, kernel_size, p_dropout,
-        duration_filter_channels=256,
-        duration_kernel_size=3,
-        duration_p_dropout=0.1,
-    )
-
-    # Entrée factice
-    x = torch.LongTensor([[12, 45, 67, 0, 0], [89, 23, 0, 0, 0]])
-    x_lengths = torch.LongTensor([3, 2]) #durée de chaque exemple sans padding 
-
-    # Forward pass
-    mu, mask, durations = text_encoder(x, x_lengths)
-    print("Forme de mu:", mu.shape)  # torch.Size([2, 80, 5])
-    print("Forme des durées:", durations.shape)  # torch.Size([2, 1, 5])
-    print("Durées prédites (premier exemple):", durations[0, 0, :3])  # Affiche les durées pour les 3 premiers phonèmes
+        return mean_output, log_duration, text_mask

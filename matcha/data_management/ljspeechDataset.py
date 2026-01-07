@@ -4,7 +4,6 @@ from torch.utils.data import Dataset
 from matcha.text_to_ID.cleaners import english_cleaners
 from matcha.text_to_ID.symbols import symbols
 from matcha.utils.audio_process import MelSpectrogram, load_and_process_audio
-from matcha.text_to_ID.fonctions import text_to_sequence
 
 class LJSpeechDataset(Dataset):
     def __init__(self, metadata_path):
@@ -17,17 +16,14 @@ class LJSpeechDataset(Dataset):
                                        hop_size=256, win_size=1024, fmin=0, fmax=8000)
 
     def __len__(self):
-
-        # nombre total d'échantillons dans le dataset (nombre de lignes dans le fichier metadata_path)
         return len(self.metadata)
 
     def __getitem__(self, idx):
         wav_path, raw_text = self.metadata[idx]
 
         # 1. Traitement du Texte
-        # clean_text = english_cleaners(raw_text)
-        # text_ids = torch.tensor([self.symbol_to_id[s] for s in clean_text if s in self.symbol_to_id], dtype=torch.long)
-        text_ids = torch.tensor(text_to_sequence(raw_text), dtype=torch.long)
+        clean_text = english_cleaners(raw_text)
+        text_ids = torch.tensor([self.symbol_to_id[s] for s in clean_text if s in self.symbol_to_id], dtype=torch.long)
 
         # 2. Traitement Audio (wav_path est déjà le chemin complet grâce à ljspeech.py)
         mel = load_and_process_audio(wav_path, self.mel_proc)

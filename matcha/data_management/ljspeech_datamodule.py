@@ -3,21 +3,62 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence 
 import os 
+from pathlib import Path
 
 from matcha.data_management.ljspeechDataset import LJSpeechDataset
+from matcha.utils.data_download.ljspeech import process_csv
 
 class LJSpeechDataModule(pl.LightningDataModule):
     def __init__(self, data_dir, batch_size=16, num_workers=4, pin_memory=False, persistent_workers=False):
         super().__init__()
-        self.data_dir = data_dir
+        self.data_dir = Path(data_dir)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.persistent_workers = persistent_workers
 
     def setup(self, stage=None):
-        self.train_ds = LJSpeechDataset(os.path.join(self.data_dir, "train.txt"))
-        self.val_ds = LJSpeechDataset(os.path.join(self.data_dir, "val.txt"))
+        train_txt = self.data_dir / "train.txt"
+        val_txt = self.data_dir / "val.txt"
+        
+        if not train_txt.exists() or not val_txt.exists():
+            metadata_found = False
+            
+            if (self.data_dir / "metadata.csv").exists():
+                metadata_found = True
+            else:
+                for subdir in self.data_dir.iterdir():
+                    if subdir.is_dir() and "ljspeech" in subdir.name.lower():
+                        if (subdir / "metadata.csv").exists():
+                            metadata_found = True
+                            break
+            
+            if metadata_found:
+                print(f"Génération de train.txt et val.txt depuis metadata.csv dans {self.data_dir}...")
+                try:
+                    process_csv(self.data_dir, output_dir=self.data_dir)
+                    if not train_txt.exists() or not val_txt.exists():
+                        raise RuntimeError(
+                            f"Les fichiers train.txt et val.txt n'ont pas été générés dans {self.data_dir}. "
+                            f"Vérifiez les permissions d'écriture."
+                        )
+                    print(f"✓ train.txt et val.txt générés avec succès dans {self.data_dir}")
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Erreur lors de la génération de train.txt/val.txt: {e}\n"
+                        f"Vérifiez que metadata.csv existe et est accessible dans {self.data_dir}"
+                    ) from e
+            else:
+                raise FileNotFoundError(
+                    f"Les fichiers train.txt et val.txt n'existent pas dans {self.data_dir}.\n"
+                    f"metadata.csv introuvable dans {self.data_dir} ou ses sous-répertoires.\n"
+                    f"Veuillez d'abord télécharger le dataset LJSpeech et exécuter:\n"
+                    f"  python -m matcha.utils.data_download.ljspeech {self.data_dir}\n"
+                    f"Ou assurez-vous que metadata.csv existe dans {self.data_dir} ou un sous-répertoire contenant 'ljspeech'"
+                )
+        
+        self.train_ds = LJSpeechDataset(str(train_txt))
+        self.val_ds = LJSpeechDataset(str(val_txt))
 
     def train_dataloader(self):
         return DataLoader(
@@ -44,18 +85,18 @@ class LJSpeechDataModule(pl.LightningDataModule):
         """
         Organise les données en batch en ajoutant du padding.
         """
-        # 1. Extraire les éléments du batch
+        # Extraire les éléments du batch
         # x: IDs de texte, y: Spectrogrammes de Mel
         x = [item["x"] for item in batch]
         y = [item["y"] for item in batch]
         x_lengths = torch.tensor([item["x_lengths"] for item in batch])
         y_lengths = torch.tensor([item["y_lengths"] for item in batch])
 
-        # 2. Padding du texte (x)
+        # Padding du texte (x)
         # batch_first=True donne une forme [Batch, Longueur_max]
         x_padded = pad_sequence(x, batch_first=True, padding_value=0)
 
-        # 3. Padding de l'audio (y)
+        # Padding de l'audio (y)
         # y est [Canaux_Mel, Temps]. On doit padder sur la dimension Temps (index 1).
         # On transpose pour utiliser pad_sequence, puis on revient à la forme initiale.
         y_padded = pad_sequence([item.transpose(0, 1) for item in y], 

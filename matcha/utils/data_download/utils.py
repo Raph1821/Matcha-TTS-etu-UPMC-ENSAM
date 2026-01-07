@@ -14,15 +14,16 @@ _LG = logging.getLogger(__name__)
 
 
 def _extract_tar(from_path: Union[str, Path], to_path: Optional[str] = None, overwrite: bool = False) -> List[str]:
-    if type(from_path) is Path:
-        from_path = str(Path)
+    if isinstance(from_path, Path):
+        from_path = str(from_path)
 
     if to_path is None:
         to_path = os.path.dirname(from_path)
 
-    with tarfile.open(from_path, "r") as tar:
+    with tarfile.open(from_path, "r:*") as tar:
+        members = tar.getmembers()
         files = []
-        for file_ in tar:
+        for file_ in members:
             file_path = os.path.join(to_path, file_.name)
             if file_.isfile():
                 files.append(file_path)

@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import pack, rearrange, repeat
+from einops import pack, rearrange
 from matcha.models.components.transformer import BasicTransformerBlock
 
 class SinusoidalPosEmb(nn.Module):
@@ -17,14 +17,16 @@ class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
-        assert dim % 2 == 0, "Dimension required by SinusoidalPosEmb must be even"
+        assert dim % 2 == 0, "La dimension doit être paire pour SinusoidalPosEmb"
 
-    def forward(self, x,scale=1000):    #  t varie entre 0 et 1 -> les différences entre les timesteps sont trop petites -> on le scale pour avoir une meilleure répartition des fréquences
+    def forward(self, x, scale=1000):
+        if x.ndim < 1:
+            x = x.unsqueeze(0)
         device = x.device
         half_dim = self.dim // 2
-        emb = torch.log(torch.tensor(10000)) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = scale*x[:, None] * emb[None, :] # [Batch_size, Half_Dim] -> tenseur [t] de forme [B] -> [B,1] x vecteur de fréquences [emb] de forme [Half_Dim] -> [1, Half_Dim] == [B, Half_Dim]
+        emb = torch.log(torch.tensor(10000.0, device=device)) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device, dtype=torch.float32) * -emb)
+        emb = scale * x.unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
@@ -36,20 +38,14 @@ class TimeStepEmbeddingNet(nn.Module):
     def __init__(self, in_channels, time_embed_dim):
         super().__init__()
         
-        # 1. Première couche linéaire : in_channels → time_embed_dim
         self.linear_1 = nn.Linear(in_channels, time_embed_dim)
-        
-        # 2. Fonction d'activation (SiLU, ReLU, GELU, etc.)
-        self.act = nn.SiLU()  
-        
-        # 3. Deuxième couche linéaire : time_embed_dim → time_embed_dim
+        self.act = nn.SiLU()
         self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim)
     
     def forward(self, sample):
-        # 4. Pipeline de transformation
-        sample = self.linear_1(sample)        # Projection
-        sample = self.act(sample)             # Non-linéarité
-        sample = self.linear_2(sample)        # Projection finale
+        sample = self.linear_1(sample)
+        sample = self.act(sample)
+        sample = self.linear_2(sample)
         return sample
     
 class Block1D(nn.Module):
@@ -61,16 +57,11 @@ class Block1D(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding),
-            nn.GroupNorm(groups, out_channels),     # indépendante du batch
-            nn.Mish(),  # plus lisse, gradients plus stables (meilleure que ReLU)
+            nn.GroupNorm(groups, out_channels),
+            nn.Mish(),
         )
 
-    # Le masque est crucial si :
-        # padding variable
-        # données temporelles irrégulières
-        # modèles type Transformer / diffusion
-
-    def forward(self, x , mask):    # architecture consciente du padding / séquence
+    def forward(self, x , mask):
         output = self.block (x*mask)
         return output*mask
 
@@ -81,31 +72,16 @@ class Resnet1D(nn.Module):
     """
     def __init__(self, in_channels, out_channels, time_emb_dim, kernel_size=3, padding=1, groups=8):
         super().__init__()
-        # MLP pour le timestep embedding
         self.mlp = nn.Sequential(nn.Mish(),nn.Linear(time_emb_dim,out_channels))
-        
-        # Première convolution
         self.block1 = Block1D(in_channels, out_channels, kernel_size, padding, groups)
-        
-        # Deuxième convolution
         self.block2 = Block1D(out_channels, out_channels, kernel_size, padding, groups)
-        
-        # Connexion résiduelle (skip connection)
         self.res_conv = nn.Conv1d(in_channels, out_channels, 1) 
     
     def forward(self, x, mask, time_emb):
-        
-        # Première convolution
-        h = self.block1(x, mask)        # [Batch, out_channels, Time]
-
-        # Injection du timestep
-        time_out = self.mlp(time_emb)   # [Batch, out_channels]
-        h += time_out[:, :, None]       # [Batch, out_channels, 1] -> broadcasting sur la dimension temporelle
-        
-        # Deuxième convolution
-        h = self.block2(h, mask)        # [Batch, out_channels, Time]
-
-        # Connexion résiduelle
+        h = self.block1(x, mask)
+        time_out = self.mlp(time_emb)
+        h += time_out[:, :, None]
+        h = self.block2(h, mask)
         output = h + self.res_conv(x * mask)  
         return output
 
@@ -122,13 +98,11 @@ class Downsample1D(nn.Module):
         return self.conv(x)
     
 class Upsample1D(nn.Module):
-    """A 1D upsampling layer with an optional convolution.
+    """Couche de sur-échantillonnage 1D avec convolution optionnelle.
 
-    Parameters:
-        channels (`int`):
-            number of channels in the inputs and outputs.
-        out_channels (`int`, optional):
-            number of output channels. Defaults to `channels`.
+    Paramètres:
+        channels (int): Nombre de canaux en entrée et sortie.
+        out_channels (int, optionnel): Nombre de canaux de sortie. Par défaut égal à `channels`.
     """
     def __init__(self, channels,out_channels=None):
         super().__init__()
@@ -186,19 +160,16 @@ class Decoder(nn.Module):
         self.in_channels=in_channels
         self.out_channels=out_channels
 
-        # Encodage du timestep
         self.time_embeddings = SinusoidalPosEmb(dim=in_channels)
-        time_embed_dim = channels[0] * 4    # Convention des diffusion models : le timestep embedding est 4 fois plus grand que la dimension de base du réseau
+        time_embed_dim = channels[0] * 4
         self.time_mlp = TimeStepEmbeddingNet(in_channels, time_embed_dim)
 
-        # Listes de blocs
         self.Downsampling_Blocks = nn.ModuleList([])
         self.Mid_Blocks = nn.ModuleList([])
         self.Upsampling_Blocks = nn.ModuleList([])
 
-        # Construction des downsampling blocks
         output_channels = in_channels
-        for i in range(len(channels)):  # 2 fois par block pour downsampling
+        for i in range(len(channels)):
             input_channels = output_channels
             output_channels = channels[i]
             is_last = i == len(channels) - 1
@@ -208,7 +179,7 @@ class Decoder(nn.Module):
                 BasicTransformerBlock(
                     dim=output_channels,
                     num_attention_heads=num_heads,
-                    head_dim=attention_head_dim,
+                    attention_head_dim=attention_head_dim,
                     dropout=dropout,
                     activation_fn="gelu",
                 )
@@ -227,14 +198,13 @@ class Decoder(nn.Module):
                 downsample,
             ]))
 
-        # Construction des mid blocks
-        for i in range(num_mid_blocks): # 2 fois par bloc pour mid block dans ce cas 
+        for i in range(num_mid_blocks): 
             resnet = Resnet1D(channels[-1], channels[-1], time_embed_dim)
             transformer = nn.ModuleList([
                 BasicTransformerBlock(
                     dim=channels[-1],
                     num_attention_heads=num_heads,
-                    head_dim=attention_head_dim,
+                    attention_head_dim=attention_head_dim,
                     dropout=dropout,
                     activation_fn="gelu",
                 )
@@ -245,20 +215,18 @@ class Decoder(nn.Module):
                 transformer,
             ]))
 
-        # Construction des upsampling blocks
         reserved_channels = channels[::-1] + (channels[0],)
         for i in range(len(reserved_channels)-1):
             input_channels = reserved_channels[i]
             output_channels = reserved_channels[i+1]
             is_last = i == (len(reserved_channels) - 2)
 
-            # x2 car on concatène avec skip connection
             resnet = Resnet1D(input_channels*2, output_channels, time_embed_dim)
             transformer = nn.ModuleList([
                 BasicTransformerBlock(
                     dim=output_channels,
                     num_attention_heads=num_heads,
-                    head_dim=attention_head_dim,
+                    attention_head_dim=attention_head_dim,
                     dropout=dropout,
                     activation_fn="gelu",
                 )
@@ -277,15 +245,14 @@ class Decoder(nn.Module):
                 upsample,
             ]))
 
-        # Couche de sortie finale
         self.final_conv = nn.Conv1d(channels[0], channels[0], kernel_size=3, padding=1)
         self.final_norm = nn.GroupNorm(8, channels[0])
         self.final_act = nn.Mish()
         self.final_proj = nn.Conv1d(channels[0], self.out_channels, kernel_size=1)
 
-        self.initalize_weights()
+        self.initialize_weights()
 
-    def initalize_weights(self):
+    def initialize_weights(self):
         """Initialisation des poids"""
         for m in self.modules():
             if isinstance(m,nn.Conv1d):
@@ -293,15 +260,15 @@ class Decoder(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.GroupNorm):
-                nn.init.constant_(m.weight, 1)  # initialise le fateur de gain gamma à 1
-                nn.init.constant_(m.bias, 0)    # initialise le biais beta à 0
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
 
-    def forward(self,x,mask,mu,t,spks=None,cond=None):
+    def forward(self,x,mask,mu,t,cond=None):
         """
         Forward pass du decoder U-Net.
 
@@ -310,37 +277,26 @@ class Decoder(nn.Module):
             mask (torch.Tensor): Masque, shape (batch_size, 1, time)
             mu (torch.Tensor): Sortie de l'encoder, shape (batch_size, n_feats, time)
             t (torch.Tensor): Timesteps, shape (batch_size,)
-            spks (torch.Tensor, optional): Speaker embeddings, shape (batch_size, spk_dim)
             cond (torch.Tensor, optional): Conditioning additionnel (non utilisé)
 
         Returns:
             torch.Tensor: Prédiction, shape (batch_size, out_channels, time)
         """
-        # Encoder le timestep
         t = self.time_embeddings(t)
         t = self.time_mlp(t)
 
-        # Concaténer x et mu (condition)
-        x = pack([x, mu], "b * t")[0]   # même batch même time dimension -> concat sur la dimension des channels -> x : (batch_size, in_channels + n_feats, time)
+        x = pack([x, mu], "b * t")[0]
 
-        # Ajouter speaker embedding si fourni
-        if spks is not None:
-            spks = repeat(spks, "b c -> b c t", t=x.shape[-1])  # répéter sur la dimension temporelle, avant : (batch_size, spk_dim) -> après : (batch_size, spk_dim, time) 
-            x = pack([x, spks], "b * t")[0] # concat l'info speaker aux canaux existants -> x : (batch_size, in_channels + n_feats + spk_dim, time)
-
-        # Downsampling blocks avec skip connections
-        hiddens = []    # pour stocker les skip connections
-        masks = [mask]  # pour stocker les masques à chaque résolution
+        hiddens = []
+        masks = [mask]
         
         for resnet, transformer_blocks, downsample in self.Downsampling_Blocks:
-            mask_down = masks[-1]   # récupérer le masque correspondant à la résolution actuelle
+            mask_down = masks[-1]
             
-            # ResNet block
             x = resnet(x, mask_down, t)
             
-            # Transformer blocks
-            x = rearrange(x, "b c t -> b t c")  # changer la forme pour le transformer à (batch_size, time, channels)
-            mask_down = rearrange(mask_down, "b 1 t -> b t")    # le transformer attend un masque de forme (batch_size, time)
+            x = rearrange(x, "b c t -> b t c")
+            mask_down = rearrange(mask_down, "b 1 t -> b t")
             for transformer_block in transformer_blocks:
                 x = transformer_block(
                     hidden_states=x,
@@ -349,16 +305,18 @@ class Decoder(nn.Module):
             x = rearrange(x, "b t c -> b c t")
             mask_down = rearrange(mask_down, "b t -> b 1 t")
             
-            # Sauvegarder pour skip connection
             hiddens.append(x)
             
-            # Downsample
-            x = downsample(x * mask_down)       # Réduction de la résolution temporelle
-            masks.append(mask_down[:, :, ::2])  # Mettre à jour le masque pour la nouvelle résolution
+            x = downsample(x * mask_down)
+            if isinstance(downsample, Downsample1D):
+                new_mask_size = (mask_down.shape[-1] + 1) // 2
+            else:
+                new_mask_size = mask_down.shape[-1]
+            new_mask = mask_down[:, :, :new_mask_size]
+            masks.append(new_mask)
 
-        # Mid blocks
-        masks = masks[:-1]      # retirer le dernier masque (pas de downsample après le mid block)
-        mask_mid = masks[-1]    # masque à la résolution actuelle
+        masks = masks[:-1]
+        mask_mid = masks[-1]
         
         for resnet, transformer_blocks in self.Mid_Blocks:
             x = resnet(x, mask_mid, t)
@@ -373,17 +331,17 @@ class Decoder(nn.Module):
             x = rearrange(x, "b t c -> b c t")
             mask_mid = rearrange(mask_mid, "b t -> b 1 t")
 
-        # Up blocks avec skip connections
-        for resnet, transformer_blocks, upsample in self.Up_Blocks:
-            mask_up = masks.pop()   # récupérer le masque correspondant à la résolution actuelle
+        for resnet, transformer_blocks, upsample in self.Upsampling_Blocks:
+            mask_up = masks.pop()
+            hidden = hiddens.pop()
             
-            # Concaténer avec skip connection
-            x = pack([x, hiddens.pop()], "b * t")[0]    # concat features actuelles avec skip connection
+            if x.shape[-1] != hidden.shape[-1]:
+                x = F.interpolate(x, size=hidden.shape[-1], mode='nearest', align_corners=None)
             
-            # ResNet block
+            x = pack([x, hidden], "b * t")[0]
+            
             x = resnet(x, mask_up, t)
             
-            # Transformer blocks
             x = rearrange(x, "b c t -> b t c")
             mask_up = rearrange(mask_up, "b 1 t -> b t")
             for transformer_block in transformer_blocks:
@@ -394,10 +352,17 @@ class Decoder(nn.Module):
             x = rearrange(x, "b t c -> b c t")
             mask_up = rearrange(mask_up, "b t -> b 1 t")
             
-            # Upsample
             x = upsample(x * mask_up)
+            
+            if isinstance(upsample, Upsample1D):
+                new_mask_size = mask_up.shape[-1] * 2
+            else:
+                new_mask_size = x.shape[-1]
+            if new_mask_size > mask_up.shape[-1]:
+                mask_up = F.interpolate(mask_up, size=new_mask_size, mode='nearest', align_corners=None)
+            else:
+                mask_up = mask_up[:, :, :new_mask_size]
 
-        # Couches finales
         x = self.final_conv(x * mask_up)
         x = self.final_norm(x)
         x = self.final_act(x)
