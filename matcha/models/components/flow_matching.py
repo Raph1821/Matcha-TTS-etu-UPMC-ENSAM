@@ -88,7 +88,7 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         # Intégration d'Euler: x_{t+dt} = x_t + dt * v(x_t, t)
         for step in range(1, len(t_span)):
             # Prédire le champ de vitesse au temps t
-            dphi_dt = self.estimator(x, mask, mu, t, spks, cond)
+            dphi_dt = self.estimator(x, mask, mu, t, cond)
             velocity = dphi_dt
 
             # Mise à jour d'Euler
@@ -142,7 +142,7 @@ class BaseConditionalFlowMatching(nn.Module, ABC):
         u_target = x1 - (1 - self.sigma_min) * z
         
         # 5. Prédire le champ de vitesse avec le estimator
-        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), spks, cond)
+        u_pred = self.estimator(phi_t, mask, mu, t.squeeze(), cond)
         
         # 6. Calculer la MSE loss (normalisée par le masque)
         loss = F.mse_loss(u_pred, u_target, reduction="sum")
@@ -187,3 +187,4 @@ class ConditionalFlowMatching(BaseConditionalFlowMatching):
             out_channels=out_channel,
             **decoder_params
         )
+
