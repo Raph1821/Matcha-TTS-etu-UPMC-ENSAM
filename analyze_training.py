@@ -2,7 +2,9 @@ import os
 import glob
 import pandas as pd
 import matplotlib.pyplot as plt
+import shutil  # Import nécessaire pour supprimer des dossiers récursivement
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+import matplotlib.ticker as ticker
 
 def analyze_training(log_dir="lightning_logs", output_dir="training_analysis"):
     # --- 1. Préparation ---
@@ -10,10 +12,19 @@ def analyze_training(log_dir="lightning_logs", output_dir="training_analysis"):
         print(f"Erreur : Le dossier {log_dir} est introuvable.")
         return
 
-    # Création du dossier de sortie s'il n'existe pas
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Dossier '{output_dir}' créé.")
+    # --- MODIFICATION : Suppression du dossier de sortie s'il existe ---
+    if os.path.exists(output_dir):
+        print(f"Suppression de l'ancien dossier '{output_dir}'...")
+        try:
+            shutil.rmtree(output_dir)
+        except OSError as e:
+            print(f"Erreur lors de la suppression : {e}")
+            return
+    # -----------------------------------------------------------------
+
+    # Création du dossier de sortie
+    os.makedirs(output_dir)
+    print(f"Dossier '{output_dir}' créé.")
 
     # Récupération et tri des dossiers de version
     version_dirs = glob.glob(os.path.join(log_dir, "version_*"))
@@ -152,7 +163,6 @@ def analyze_training(log_dir="lightning_logs", output_dir="training_analysis"):
         ax.legend()
 
     axes[-1].set_xlabel("Epochs")
-    import matplotlib.ticker as ticker
     axes[-1].xaxis.set_major_locator(ticker.MaxNLocator(integer=True)) # Force epoch entier
 
     plot_path = os.path.join(output_dir, "losses_plot.png")
