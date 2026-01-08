@@ -7,7 +7,6 @@ from matcha.utils.audio_process import MelSpectrogram, load_and_process_audio
 
 class LJSpeechDataset(Dataset):
     def __init__(self, metadata_path):
-        
         # On lit le fichier train.txt ou val.txt (format: chemin_wav|texte)
         with open(metadata_path, "r", encoding="utf-8") as f:
             self.metadata = [line.strip().split("|") for line in f.readlines()]
@@ -15,8 +14,6 @@ class LJSpeechDataset(Dataset):
         self.symbol_to_id = {s: i for i, s in enumerate(symbols)}
         self.mel_proc = MelSpectrogram(n_fft=1024, num_mels=80, sampling_rate=22050, 
                                        hop_size=256, win_size=1024, fmin=0, fmax=8000)
-        self.mel_mean = -5.517955  # Remplacez par votre valeur calculée
-        self.mel_std = 2.064464
 
     def __len__(self):
         return len(self.metadata)
@@ -30,8 +27,6 @@ class LJSpeechDataset(Dataset):
 
         # 2. Traitement Audio (wav_path est déjà le chemin complet grâce à ljspeech.py)
         mel = load_and_process_audio(wav_path, self.mel_proc)
-
-        mel = (mel - self.mel_mean) / self.mel_std
 
         return {
             "x": text_ids, 
