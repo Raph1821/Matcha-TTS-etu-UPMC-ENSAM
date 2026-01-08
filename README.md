@@ -94,7 +94,7 @@ Option 2 - Manuel :
 
 ```bash
 # 1. Lancer l'entraînement
-python train.py --checkpoint path/to/checkpoint.ckpt    # chemin des checkpoints
+python train.py 
 ```
 OU
 ```bash
