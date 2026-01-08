@@ -6,8 +6,8 @@ import json
 sys.path.append('./hifi_gan') 
 
 # Maintenant on peut importer les classes comme si elles étaient installées
-from env import AttrDict
-from models import Generator as HiFiGAN
+from hifi_gan.env import AttrDict
+from hifi_gan.models import Generator as HiFiGAN
 import os
 import torch
 import torchaudio
