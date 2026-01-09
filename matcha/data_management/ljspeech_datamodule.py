@@ -13,7 +13,7 @@ class LJSpeechDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_dir = Path(data_dir)
         self.batch_size = batch_size
-        self.num_workers = num_workers
+        self.num_workers = 0
         self.pin_memory = pin_memory
         self.persistent_workers = persistent_workers
 

@@ -26,7 +26,7 @@ class LJSpeechDataset(Dataset):
         text_ids = torch.tensor([self.symbol_to_id[s] for s in clean_text if s in self.symbol_to_id], dtype=torch.long)
 
         # 2. Traitement Audio (wav_path est déjà le chemin complet grâce à ljspeech.py)
-        mel = load_and_process_audio(wav_path, self.mel_proc)
+        mel = load_and_process_audio(wav_path, self.mel_proc).detach()
 
         return {
             "x": text_ids, 
