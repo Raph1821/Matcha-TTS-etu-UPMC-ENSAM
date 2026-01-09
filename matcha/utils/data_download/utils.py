@@ -9,6 +9,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 from typing import Any, List, Optional, Union
+import torch
 
 _LG = logging.getLogger(__name__)
 
@@ -52,3 +53,30 @@ def _extract_zip(from_path: Union[str, Path], to_path: Optional[str] = None, ove
                     continue
             zfile.extract(file_, to_path)
     return files
+
+
+def download_pretrained_model(
+    url: str, 
+    destination: str, 
+    force_download: bool = False
+):
+    """
+    Télécharge un modèle pré-entraîné depuis une URL (GitHub Release, etc.)
+    """
+    if os.path.exists(destination) and not force_download:
+        print(f" Le modèle existe déjà à : {destination}")
+        return
+
+    print(f"⬇  Téléchargement du modèle depuis {url}...")
+    try:
+        # Crée le dossier parent si nécessaire
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        
+        # Télécharge avec barre de progression
+        torch.hub.download_url_to_file(url, destination, progress=True)
+        print(" Téléchargement terminé !")
+    except Exception as e:
+        print(f" Erreur lors du téléchargement : {e}")
+        # Nettoie le fichier partiel si échec
+        if os.path.exists(destination):
+            os.remove(destination)

@@ -5,9 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matcha.models.matcha_tts import MatchaTTS
 from matcha.text_to_ID.text_to_sequence import text_to_sequence
+from matcha.utils.data_download.utils import download_pretrained_model 
 
 # --- CONFIGURATION ---
-CHECKPOINT_PATH = None  # Laissera le script trouver le dernier automatiquement
+MODEL_URL = "https://github.com/Raph1821/Matcha-TTS-etu-UPMC-ENSAM/releases/download/v1.0/matcha_final.ckpt"
+CHECKPOINT_PATH = "checkpoints_matcha/pretrained_ljspeech.ckpt"  # mettre None si on veut le dernier checkpoint du dossier lightning_logs
+
 OUTPUT_FOLDER = "generated_audio"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TEXTE_A_DIRE = "Hello, I am your Matcha Text to Speech model, what can I do for you."
@@ -24,34 +27,12 @@ def get_latest_checkpoint(logs_dir="lightning_logs"):
     print(f"Checkpoint trouvé : {latest_file}")
     return latest_file
 
-def simple_euler_ode_solver(model, mu, n_steps=10):
-    """
-    Le cœur du Flow Matching : transforme le bruit en son pas à pas.
-    """
-    # 1. On part d'un bruit blanc (t=0)
-    # mu shape: [1, 80, T]
-    z = torch.randn_like(mu, device=DEVICE)
-    
-    # 2. On avance dans le temps de 0 à 1
-    dt = 1.0 / n_steps
-    
-    print(f"Génération en {n_steps} étapes...")
-    
-    for i in range(n_steps):
-        t_val = i / n_steps
-        t = torch.tensor([t_val], device=DEVICE)
-        
-        # Le décodeur prédit la vitesse (le vecteur direction)
-        # On n'a pas besoin de masque ici car on génère tout
-        v_pred = model.decoder(z, t, mu, mask=None)
-        
-        # Euler step : nouvelle position = ancienne + vitesse * temps
-        z = z + v_pred * dt
-        
-    return z # C'est notre spectrogramme généré (y_hat)
+
 
 def main():
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    download_pretrained_model(MODEL_URL, CHECKPOINT_PATH)
 
     # 1. Chargement du modèle
     ckpt = CHECKPOINT_PATH if CHECKPOINT_PATH else get_latest_checkpoint()

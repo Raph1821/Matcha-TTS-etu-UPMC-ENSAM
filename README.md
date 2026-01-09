@@ -93,12 +93,10 @@ Option 2 - Manuel :
 ### Entraînement complet
 
 ```bash
-# 1. Lancer l'entraînement
 python train.py 
 ```
 OU
 ```bash
-# 2. Forcer un nouveau départ
 python train.py --no-resume
 ```
 
@@ -120,25 +118,6 @@ python analyze_training.py
 
 # Visualiser avec TensorBoard
 tensorboard --logdir lightning_logs
-```
-## Flux de Données Complet
-
-```
-1. Texte brut : "Hello world"
-   ↓
-2. [text_to_sequence] → Tokens : [34, 12, 45, ...]
-   ↓
-3. [TextEncoder] → Vecteurs h : [batch, n_tokens, 192]
-   ↓
-4. [Duration Predictor] → Durées : [5, 3, 7, ...]
-   ↓
-5. [Upsampling] → h aligné : [batch, 192, T_audio]
-   ↓
-6. [Decoder + Flow Matching] → Mel : [batch, 80, T_audio]
-   ↓
-7. [Vocoder Griffin-Lim/HiFi-GAN] → Audio : waveform
-   ↓
-8. Fichier WAV sauvegardé
 ```
 
 ## Scripts disponibles
