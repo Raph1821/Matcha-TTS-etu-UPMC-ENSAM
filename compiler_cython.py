@@ -10,7 +10,7 @@ try:
     from Cython.Build import cythonize
     from setuptools import Extension, setup
 except ImportError:
-    print("❌ Cython n'est pas installé. Installez-le avec: pip install Cython")
+    print(" Cython n'est pas installé. Installez-le avec: pip install Cython")
     sys.exit(1)
 
 # Chemin vers core.pyx
@@ -18,10 +18,10 @@ project_root = Path(__file__).parent
 core_pyx = project_root / "matcha" / "utils" / "monotonic_align" / "core.pyx"
 
 if not core_pyx.exists():
-    print(f"❌ Fichier introuvable: {core_pyx}")
+    print(f" Fichier introuvable: {core_pyx}")
     sys.exit(1)
 
-print(f"📦 Compilation de: {core_pyx}")
+print(f" Compilation de: {core_pyx}")
 
 # Obtenir le chemin des headers numpy
 numpy_include = np.get_include()
@@ -52,6 +52,6 @@ setup(
     script_args=["build_ext", "--inplace"]
 )
 
-print("\n✅ Compilation terminée!")
-print("💡 Le fichier .so devrait être dans: matcha/utils/monotonic_align/")
+print("\n Compilation terminée!")
+print(" Le fichier .so devrait être dans: matcha/utils/monotonic_align/")
 
